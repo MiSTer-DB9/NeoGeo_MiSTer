@@ -503,7 +503,7 @@ always@(posedge clk_sys) begin
 								endcase
 							end
  				// Reading user_io raw joy
-				'h37: io_dout <= joy_raw; 
+				'h0f: io_dout <= joy_raw; 
 				endcase
 			end
 		end
