@@ -503,7 +503,9 @@ always@(posedge clk_sys) begin
 								endcase
 							end
  				// Reading user_io raw joy
-				'h0f: io_dout <= joy_raw; 
+				'h0f: io_dout <= joy_raw;
+// buttons and switches
+'h01: cfg <= io_din; 
 				endcase
 			end
 		end
