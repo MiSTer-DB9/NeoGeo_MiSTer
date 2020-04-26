@@ -232,7 +232,7 @@ localparam CONF_STR = {
 "-;",
 	"OUV,UserIO Joystick,Off,DB9MD,DB15 ;",
 	"OT,UserIO Players, 1 Player,2 Players;",
-	"OS,Buttons Config.,ABCX,ABXY;",
+	"OS,Buttons Config.,ABCX(ABCD),ABXY;",
 "-;",
 	"H3OP,FM,ON,OFF;",
 	"H3OQ,ADPCMA,ON,OFF;",
