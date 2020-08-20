@@ -669,7 +669,7 @@ always@(posedge clk_sys) begin
 
 	tx_empty <= ((wptr == rptr) && (tx_state == 0));
 
-	if(we) begin
+	if(we && !has_data) begin
 		fifo[wptr] <= wdata;
 		wptr <= wptr + 1'd1;
 	end
@@ -709,6 +709,8 @@ always@(posedge clk_sys) begin
 						ps2_dat_out <= 1;
 						has_data <= 1;
 						rx_state <= 0;
+						rptr     <= 0;
+						wptr     <= 0;
 					end
 			endcase
 		end else begin
