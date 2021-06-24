@@ -275,7 +275,7 @@ localparam CONF_STR = {
 "-;",
 	"OUV,UserIO Joystick,Off,DB9MD,DB15 ;",
 	"OT,UserIO Players, 1 Player,2 Players;",
-	"OS,Buttons Config.,ABCX(ABCD),ABXY;",
+	"OS,Buttons Config.,ABCX(ABCD),ABCZ;",
 "-;",
 	"H3OP,FM,ON,OFF;",
 	"H3OQ,ADPCMA,ON,OFF;",
@@ -418,8 +418,8 @@ wire [31:0] joystick_0 = joydb_1ena ?
 		OSD_STATUS? 32'b000000 : {joydb_1[9],joydb_1[11]|(joydb_1[10]&joydb_1[5]),joydb_1[8],joydb_1[10],joydb_1[7],joydb_1[6:0]}
 		} :
 		{
-		// C M Z S Y X B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_1[6],joydb_1[11]|(joydb_1[10]&joydb_1[5]),joydb_1[9],joydb_1[10],joydb_1[8:7],joydb_1[5:0]}
+		// X M Y S Z C B A U D L R
+		OSD_STATUS? 32'b000000 : {joydb_1[7],joydb_1[11]|(joydb_1[10]&joydb_1[5]),joydb_1[8],joydb_1[10],joydb_1[9],joydb_1[6:0]}
 	}
 : joystick_0_USB;
 
@@ -429,8 +429,8 @@ wire [31:0] joystick_1 = joydb_2ena ?
 		OSD_STATUS? 32'b000000 : {joydb_2[9],joydb_2[11]|(joydb_2[10]&joydb_2[5]),joydb_2[8],joydb_2[10],joydb_2[7],joydb_2[6:0]}
 		} :
 		{
-		// C M Z S Y X B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_2[6],joydb_2[11]|(joydb_2[10]&joydb_2[5]),joydb_2[9],joydb_1[10],joydb_2[8:7],joydb_2[5:0]}
+		// X M Y S Z C B A U D L R
+		OSD_STATUS? 32'b000000 : {joydb_2[7],joydb_2[11]|(joydb_2[10]&joydb_2[5]),joydb_2[8],joydb_2[10],joydb_2[9],joydb_2[6:0]}
 	}
 : joydb_1ena ? joystick_0_USB : joystick_1_USB;
 
