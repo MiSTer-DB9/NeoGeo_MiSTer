@@ -12,6 +12,6 @@ jobs:
     - uses: actions/checkout@v2
 
     - name: Sync with upstream + Release
-      run: ./.github/sync_release.sh 
+      run: ./.github/sync_release.sh theypsilon@gmail.com neurorulez@gmail.com
       env:
         NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
