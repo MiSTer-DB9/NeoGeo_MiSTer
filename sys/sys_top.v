@@ -336,7 +336,10 @@ always@(posedge clk_sys) begin
 
 	old_strobe <= io_strobe;
 	coef_wr <= 0;
+
+`ifndef MISTER_DEBUG_NOHDMI
 	shadowmask_wr <= 0;
+`endif
 
 	if(~io_uio) begin
 		has_cmd <= 0;
@@ -454,7 +457,10 @@ always@(posedge clk_sys) begin
 					 3: arc2y <= io_din[12:0];
 				endcase
 			end
+
+`ifndef MISTER_DEBUG_NOHDMI
 			if(cmd == 'h3E) {shadowmask_wr,shadowmask_data} <= {1'b1, io_din};
+`endif
 		end
 	end
 
@@ -1059,7 +1065,7 @@ wire        hdmi_de_sl, hdmi_vs_sl, hdmi_hs_sl;
 reg dis_output;
 always @(posedge clk_hdmi) begin
 	reg dis;
-	dis <= fb_force_blank;
+	dis <= fb_force_blank & ~LFB_EN;
 	dis_output <= dis;
 end
 `else
@@ -1070,7 +1076,7 @@ scanlines #(1) HDMI_scanlines
 (
 	.clk(clk_hdmi),
 
-	.scanlines(scanlines),
+	.scanlines(LFB_EN ? 2'b00 : scanlines),
 	.din(dis_output ? 24'd0 : hdmi_data),
 	.hs_in(hdmi_hs),
 	.vs_in(hdmi_vs),
@@ -1100,6 +1106,7 @@ shadowmask HDMI_shadowmask
 	.hs_in(hdmi_hs_sl),
 	.vs_in(hdmi_vs_sl),
 	.de_in(hdmi_de_sl),
+	.enable(~LFB_EN),
 	
 	.dout(hdmi_data_mask),
 	.hs_out(hdmi_hs_mask),
