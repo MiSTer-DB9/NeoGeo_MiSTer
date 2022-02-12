@@ -46,7 +46,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [47:0] HPS_BUS,
+	inout  [48:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -252,7 +252,6 @@ video_freak video_freak
 // G:	status[11:10]	Neo CD region
 // C:	status[12]		Save memory card & backup RAM
 // L:	status[12]		CD lid state (DEBUG)
-//  :	status[13]		Primary SDRAM size 32MB/64MB
 //  :	status[14]		Manual Reset
 //  :	status[20:15]  OSD options
 // 0123456789 ABCDEFGHIJKLMNO
@@ -265,6 +264,13 @@ video_freak video_freak
 // O   O   +  +  ~SYSTEM_CDx;
 // +   O   +  +  SYSTEM_MVS; 
 // +   +   O  O  SYSTEM_CDx;   
+
+// Status Bit Map:
+//             Upper                             Lower              
+// 0         1         2         3          4         5         6   
+// 01234567890123456789012345678901 23456789012345678901234567890123
+// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
+// XXXXXXXXXXXXX XXX XXXXX XXXXX    XXXXXXXXXXX              XXXXXX 
 
 `include "build_id.v"
 localparam CONF_STR = {
