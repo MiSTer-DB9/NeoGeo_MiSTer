@@ -746,6 +746,7 @@ parameter INDEX_CROMS = 64;
 
 wire video_mode = status[3];
 
+wire       xram       = cfg[18];
 wire       adpcma_ext = cfg[19];
 wire [2:0] cart_pchip = cfg[22:20];
 wire       use_pcm    = cfg[23];
@@ -1372,7 +1373,7 @@ assign FX68K_DATAIN = M68K_RW ? M68K_DATA_BYTE_MASK : 16'h0000;
 assign FIXD = CD_USE_FIX ? 8'bzzzz_zzzz : S2H1 ? SROM_DATA[15:8] : SROM_DATA[7:0];
 
 // Disable ROM read in PORT zone if the game uses a special chip
-assign M68K_DATA = (nROMOE & nSROMOE & ~CD_TR_RD_SPR & |{nPORTOE, cart_chip, cart_pchip, CD_TR_RD_FIX}) ? 16'bzzzzzzzzzzzzzzzz : PROM_DATA;
+assign M68K_DATA = (nROMOE & nSROMOE & ~CD_TR_RD_SPR & |{nPORTOE, cart_chip, cart_pchip, xram, CD_TR_RD_FIX}) ? 16'bzzzzzzzzzzzzzzzz : PROM_DATA;
 
 // Output correct FIX byte
 assign M68K_DATA[7:0] = ~CD_TR_RD_FIX ? 8'bzzzz_zzzz : (M68K_ADDR[4] ? PROM_DATA[15:8] : PROM_DATA[7:0]);
@@ -1447,6 +1448,42 @@ neo_sma neo_sma
 	.P2_ADDR(P2ROM_ADDR_SMA)
 );
 
+wire XRAM_CS = ~nPORTADRS && !M68K_ADDR[19:13] && xram;
+wire [15:0] XRAM_OUT;
+wire [15:0] xram_buff_dout;
+
+dpram #(12) XRAML(
+	.clock_a(CLK_48M),
+	.address_a(M68K_ADDR[12:1]),
+	.data_a(M68K_DATA[7:0]),
+	.wren_a(~nPORTWEL & XRAM_CS),
+	.q_a(XRAM_OUT[7:0]),
+
+	.clock_b(clk_sys),
+	.address_b(memcard_addr),
+	.wren_b(memcard_wr & xram),
+	.data_b(sd_buff_dout[7:0]),
+	.q_b(xram_buff_dout[7:0])
+);
+
+dpram #(12) XRAMU(
+	.clock_a(CLK_48M),
+	.address_a(M68K_ADDR[12:1]),
+	.data_a(M68K_DATA[15:8]),
+	.wren_a(~nPORTWEU & XRAM_CS),
+	.q_a(XRAM_OUT[15:8]),
+
+	.clock_b(clk_sys),
+	.address_b(memcard_addr),
+	.wren_b(memcard_wr & xram),
+	.data_b(sd_buff_dout[15:8]),
+	.q_b(xram_buff_dout[15:8])
+);
+
+assign M68K_DATA[7:0]  = (XRAM_CS & ~nPORTOEL) ? XRAM_OUT[7:0]  : 8'bZ;
+assign M68K_DATA[15:8] = (XRAM_CS & ~nPORTOEU) ? XRAM_OUT[15:8] : 8'bZ;
+
+assign M68K_DATA[7:0] = (~nPORTOEL && M68K_ADDR[19] && !M68K_ADDR[18:1] && xram) ? {~joystick_0[8],1'b1,~joystick_0[9],~joystick_0[11],2'b11, ~joystick_1[10],~joystick_0[10]} : 8'bZ;
 
 // Work RAM or CD extended RAM read
 assign M68K_DATA[7:0]  = nWRL ? 8'bzzzzzzzz : SYSTEM_CDx ? PROM_DATA[7:0]  : WRAML_OUT;
@@ -1500,7 +1537,7 @@ memcard MEMCARD(
 );
 
 // Feed save file writer with backup RAM data or memory card data
-wire [15:0] bk_dout = bk_lba[7] ? memcard_buff_dout : sram_buff_dout;
+wire [15:0] bk_dout = ~bk_lba[7] ? sram_buff_dout : xram ? xram_buff_dout : memcard_buff_dout;
 
 assign CROM_ADDR = {C_LATCH_EXT, C_LATCH, 3'b000} & CROM_MASK;
 
@@ -1654,8 +1691,8 @@ neo_c1 C1(
 	.nLSPOE(nLSPOE), .nLSPWE(nLSPWE),
 	.nCRDO(nCRDO), .nCRDW(nCRDW), .nCRDC(nCRDC),
 	.nSDW(nSDW),
-	.P1_IN(~{(joystick_0[9:8]|ps2_mouse[2]), {use_mouse ? ms_pos : use_sp ? {|{joystick_0[7:4],ps2_mouse[1:0]},sp0} : {joystick_0[7:4]|{3{joystick_0[11]}}, joystick_0[0], joystick_0[1], joystick_0[2], joystick_0[3]}}}),
-	.P2_IN(~{ joystick_1[9:8],               {use_mouse ? ms_btn : use_sp ? {|{joystick_1[7:4]},               sp1} : {joystick_1[7:4]|{3{joystick_1[11]}}, joystick_1[0], joystick_1[1], joystick_1[2], joystick_1[3]}}}),
+	.P1_IN(~{(joystick_0[9:8]|ps2_mouse[2]), {use_mouse ? ms_pos : use_sp ? {|{joystick_0[7:4],ps2_mouse[1:0]},sp0} : {joystick_0[7:4]|{3{~xram & joystick_0[11]}}, joystick_0[0], joystick_0[1], joystick_0[2], joystick_0[3]}}}),
+	.P2_IN(~{ joystick_1[9:8],               {use_mouse ? ms_btn : use_sp ? {|{joystick_1[7:4]},               sp1} : {joystick_1[7:4]|{3{~xram & joystick_1[11]}}, joystick_1[0], joystick_1[1], joystick_1[2], joystick_1[3]}}}),
 	.nCD1(nCD1), .nCD2(nCD2),
 	.nWP(0),			// Memory card is never write-protected
 	.nROMWAIT(~rom_wait), .nPWAIT0(~p_wait[0]), .nPWAIT1(~p_wait[1]), .PDTACK(1),
@@ -1884,7 +1921,7 @@ always @(posedge DDRAM_CLK) begin
 	ADPCMB_OE_SR <= {ADPCMB_OE_SR[0], nSDPOE};
 	if (ADPCMB_OE_SR == 2'b10 & ~SYSTEM_CDx) begin
 		ADPCMB_READ_REQ <= ~ADPCMB_READ_REQ;
-		ADPCMB_ADDR_LATCH <= {~use_pcm, ADPCMB_ADDR & (use_pcm ? V1ROM_MASK[24:0] : V2ROM_MASK[24:0])};
+		ADPCMB_ADDR_LATCH <= {~use_pcm, ADPCMB_ADDR & (use_pcm ? V1ROM_MASK[23:0] : V2ROM_MASK[23:0])};
 		// Data is needed on one previous 8MHz clk before next 55KHz clock->(96MHz/55KHz = 1728)-144-4=1580
 		ADPCMB_ACK_COUNTER <= 11'd1580;
 	end
