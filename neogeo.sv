@@ -562,7 +562,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 
 	.forced_scandoubler(forced_scandoubler),
 
-	.joystick_0(joystick_0), .joystick_1(joystick_1),
+	.joystick_0(joystick_0_USB), .joystick_1(joystick_1_USB),
 	.spinner_0(spinner_0), .spinner_1(spinner_1),
 	.ps2_mouse(ps2_mouse),
 	.buttons(buttons),
