@@ -21,15 +21,6 @@ jobs:
         path: /tmp/docker-image.tar
         key: docker-theypsilon/quartus-lite-c5:17.0.2.docker0
 
-    - name: Load or pull Docker image
-      run: |
-        if [ -f /tmp/docker-image.tar ]; then
-          docker load -i /tmp/docker-image.tar
-        else
-          docker pull "theypsilon/quartus-lite-c5:17.0.2.docker0"
-          docker save "theypsilon/quartus-lite-c5:17.0.2.docker0" -o /tmp/docker-image.tar
-        fi
-
     - name: Release
       run: ./.github/push_release.sh theypsilon@gmail.com neurorulez@gmail.com timothy.redaelli@gmail.com
       env:
