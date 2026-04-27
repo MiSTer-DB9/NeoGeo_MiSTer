@@ -19,12 +19,6 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
-    - name: Cache Docker image
-      uses: actions/cache@v5
-      with:
-        path: /tmp/docker-image.tar
-        key: docker-theypsilon/quartus-lite-c5:17.0.2.docker0
-
     - name: Release
       run: ./.github/push_release.sh theypsilon@gmail.com neurorulez@gmail.com timothy.redaelli@gmail.com
       env:
