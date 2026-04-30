@@ -1,5 +1,3 @@
-set_global_assignment -name VERILOG_FILE src/joydb9md.v
-set_global_assignment -name VERILOG_FILE src/joydb15.v
 set_global_assignment -name QIP_FILE rtl/jt12/target/quartus/jt10.qip
 set_global_assignment -name QIP_FILE rtl/jt49/syn/quartus/jt49.qip
 set_global_assignment -name QIP_FILE rtl/video/video.qip
