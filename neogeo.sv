@@ -565,6 +565,11 @@ wire [31:0] joystick_1 = joydb_2ena ?
 	}
 : joydb_1ena ? joystick_0_USB : joystick_1_USB;
 
+// [MiSTer-DB9 BEGIN] - pass-through aliases (4-player Mahjong/Multitap path bypasses joydb)
+wire [15:0] joystick_2 = joystick_2_USB;
+wire [15:0] joystick_3 = joystick_3_USB;
+// [MiSTer-DB9 END]
+
 	
 
 
@@ -578,6 +583,9 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.forced_scandoubler(forced_scandoubler),
 
 	.joystick_0(joystick_0_USB), .joystick_1(joystick_1_USB),
+	// [MiSTer-DB9 BEGIN] - players 3/4 not routed through joydb (DB9 supports 2P max); wire straight from hps_io
+	.joystick_2(joystick_2_USB), .joystick_3(joystick_3_USB),
+	// [MiSTer-DB9 END]
 	.spinner_0(spinner_0), .spinner_1(spinner_1),
 	.ps2_mouse(ps2_mouse),
 	.buttons(buttons),
