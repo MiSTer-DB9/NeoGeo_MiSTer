@@ -10,6 +10,13 @@ COMPILATION_INPUT=(NeoGeo.qpf)
 COMPILATION_OUTPUT=(output_files/NeoGeo.rbf)
 QUARTUS_IMAGE="theypsilon/quartus-lite-c5:17.0.2.docker0"
 
+# [MiSTer-DB9 BEGIN] - fork-only cores have no upstream; sync_release is a no-op
+if [[ -z "${UPSTREAM_REPO}" ]]; then
+    echo "No UPSTREAM_REPO configured — fork-only core, skipping sync."
+    exit 0
+fi
+# [MiSTer-DB9 END]
+
 echo "Fetching upstream:"
 git remote remove upstream 2> /dev/null || true
 git remote add upstream "${UPSTREAM_REPO}"
