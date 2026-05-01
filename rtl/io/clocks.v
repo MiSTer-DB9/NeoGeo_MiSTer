@@ -49,8 +49,8 @@ module clocks_sync(
 		else if (CLK_EN_24M_P)
 			CLK_68KCLK <= ~CLK_68KCLK;	// MV4 C4:A
 	end
-	assign CLK_EN_68K_P = ~CLK_68KCLK & CLK_EN_24M_P;
-	assign CLK_EN_68K_N =  CLK_68KCLK & CLK_EN_24M_P;
+	assign CLK_EN_68K_P = CLK_EN_24M_P;
+	assign CLK_EN_68K_N = CLK_EN_24M_N;
 	
 	always @(posedge CLK, negedge nRESETP)
 	begin
