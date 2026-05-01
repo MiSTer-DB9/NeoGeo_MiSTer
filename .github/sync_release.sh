@@ -8,8 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/retry.sh"
 
 UPSTREAM_REPO="https://github.com/MiSTer-devel/NeoGeo_MiSTer.git"
-CORE_NAME=(NeoGeo)
-MAIN_BRANCH="master"
+CORE_NAME=(NeoGeo_24MHz_cpu_only)
+MAIN_BRANCH="24MHz_cpu_only"
 COMPILATION_INPUT=(NeoGeo.qpf)
 COMPILATION_OUTPUT=(output_files/NeoGeo.rbf)
 QUARTUS_IMAGE="theypsilon/quartus-lite-c5:17.0.2.docker0"

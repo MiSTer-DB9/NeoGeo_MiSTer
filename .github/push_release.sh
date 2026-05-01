@@ -22,8 +22,8 @@ if [[ -f sys/hps_io.sv ]] && ! grep -q saturn_unlocked sys/hps_io.sv 2>/dev/null
 fi
 # [MiSTer-DB9 END]
 
-CORE_NAME=(NeoGeo)
-MAIN_BRANCH="master"
+CORE_NAME=(NeoGeo_24MHz_cpu_only)
+MAIN_BRANCH="24MHz_cpu_only"
 COMPILATION_INPUT=(NeoGeo.qpf)
 COMPILATION_OUTPUT=(output_files/NeoGeo.rbf)
 QUARTUS_IMAGE="theypsilon/quartus-lite-c5:17.0.2.docker0"
