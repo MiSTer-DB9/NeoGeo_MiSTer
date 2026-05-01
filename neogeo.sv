@@ -546,22 +546,22 @@ wire [21:0] gamma_bus;
 wire [31:0] joystick_0 = joydb_1ena ?
 	!status[60] ? {
 		// Z M Y S X C B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_1[9],joydb_1[11]|(joydb_1[10]&joydb_1[5]),joydb_1[8],joydb_1[10],joydb_1[7],joydb_1[6:0]}
+		OSD_STATUS? 32'b000000 : {joydb_1[9],joydb_1[11],joydb_1[8],joydb_1[10],joydb_1[7],joydb_1[6:0]}
 		} :
 		{
 		// X M Y S Z C B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_1[7],joydb_1[11]|(joydb_1[10]&joydb_1[5]),joydb_1[8],joydb_1[10],joydb_1[9],joydb_1[6:0]}
+		OSD_STATUS? 32'b000000 : {joydb_1[7],joydb_1[11],joydb_1[8],joydb_1[10],joydb_1[9],joydb_1[6:0]}
 	}
 : joystick_0_USB;
 
 wire [31:0] joystick_1 = joydb_2ena ?
 	!status[60] ? {
 		// Z M Y S X C B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_2[9],joydb_2[11]|(joydb_2[10]&joydb_2[5]),joydb_2[8],joydb_2[10],joydb_2[7],joydb_2[6:0]}
+		OSD_STATUS? 32'b000000 : {joydb_2[9],joydb_2[11],joydb_2[8],joydb_2[10],joydb_2[7],joydb_2[6:0]}
 		} :
 		{
 		// X M Y S Z C B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_2[7],joydb_2[11]|(joydb_2[10]&joydb_2[5]),joydb_2[8],joydb_2[10],joydb_2[9],joydb_2[6:0]}
+		OSD_STATUS? 32'b000000 : {joydb_2[7],joydb_2[11],joydb_2[8],joydb_2[10],joydb_2[9],joydb_2[6:0]}
 	}
 : joydb_1ena ? joystick_0_USB : joystick_1_USB;
 
