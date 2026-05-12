@@ -64,46 +64,75 @@ git config --global user.name "The CI/CD Bot"
 git config --global rerere.enabled true
 
 echo
-echo "Syncing with upstream HEAD:"
+echo "Preparing unstable branch:"
 if [[ -f .git/shallow ]]; then
     retry -- git fetch origin --unshallow
 fi
 git checkout -qf "${MAIN_BRANCH}"
-FORK_HEAD_SHA=$(git rev-parse HEAD)
+MASTER_SHA=$(git rev-parse HEAD)
 
-# Cheap pre-check: if neither upstream's new commits nor any change to the
-# fork's MAIN_BRANCH touched HDL paths since the previous unstable build, the
-# merge result for HDL files is bit-identical to last build → skip rerere
-# training + merge + Quartus entirely. Reads last_unstable_{upstream,fork}_sha
-# from the release body written at the bottom of this script.
+# Bootstrap a persistent `unstable` branch from MAIN_BRANCH on first run.
+# Stable invariant (master pinned to last-released upstream commit) is
+# preserved: unstable receives the rolling merges + maintainer conflict
+# resolutions; master is never written by this script.
+if git ls-remote --exit-code origin refs/heads/unstable >/dev/null 2>&1; then
+    retry -- git fetch --no-tags origin "refs/heads/unstable:refs/remotes/origin/unstable"
+    git checkout -B unstable "origin/unstable"
+else
+    echo "No origin/unstable yet — bootstrapping from ${MAIN_BRANCH}."
+    git checkout -B unstable "${MASTER_SHA}"
+    retry -- git push origin "unstable"
+fi
+UNSTABLE_BRANCH_SHA_BEFORE=$(git rev-parse HEAD)
+
+# Catch up unstable with any stable-line progress on MAIN_BRANCH since the
+# last unstable run. Merge-conflicts here are rare (master normally advances
+# only via stable's already-resolved merges) but we route them through
+# notify_error.sh just in case.
+if [[ "${UNSTABLE_BRANCH_SHA_BEFORE}" != "${MASTER_SHA}" ]] && \
+   ! git merge-base --is-ancestor "${MASTER_SHA}" HEAD; then
+    git merge -Xignore-all-space --no-ff "${MASTER_SHA}" \
+        -m "BOT: Unstable catchup with ${MAIN_BRANCH} @ ${MASTER_SHA:0:7}" \
+        || ./.github/notify_error.sh "UNSTABLE MASTER CATCHUP CONFLICT" "$@"
+fi
+
+# Cheap pre-check: if neither upstream's new commits, nor stable master's
+# progression, nor any maintainer commit on unstable touched HDL paths since
+# the previous unstable build, the merge result for HDL files would be bit-
+# identical to last build → skip rerere training + merge + push + Quartus
+# entirely. Reads last_unstable_{sha,master_sha,branch_sha} from release body.
 RELEASE_JSON=""
 RELEASE_EXISTS=0
 if gh release view "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" --json body 2>/dev/null > /tmp/release_body.json; then
     RELEASE_EXISTS=1
     RELEASE_JSON=$(cat /tmp/release_body.json)
 fi
+LAST_UPSTREAM_SHA=""
+LAST_MASTER_SHA=""
+LAST_BRANCH_SHA=""
 if [[ -n "${RELEASE_JSON}" ]]; then
-    read -r LAST_UPSTREAM_SHA LAST_FORK_SHA < <(printf '%s' "${RELEASE_JSON}" | python3 -c '
+    read -r LAST_UPSTREAM_SHA LAST_MASTER_SHA LAST_BRANCH_SHA < <(printf '%s' "${RELEASE_JSON}" | python3 -c '
 import json, sys, re
 body = json.load(sys.stdin).get("body", "")
 def find(key):
     m = re.search(rf"{key}:\s*([0-9a-f]{{7,40}})", body)
     return m.group(1) if m else ""
-print(find("last_unstable_sha"), find("last_unstable_fork_sha"))
+print(find("last_unstable_sha"), find("last_unstable_master_sha"), find("last_unstable_branch_sha"))
 ')
-    if [[ -n "${LAST_UPSTREAM_SHA:-}" && -n "${LAST_FORK_SHA:-}" ]]; then
-        UPSTREAM_HDL_DIFF=$(git diff --name-only "${LAST_UPSTREAM_SHA}..${UPSTREAM_SHA}" -- "${HDL_GLOBS[@]}" 2>/dev/null || echo NONEMPTY)
-        FORK_HDL_DIFF=$(git diff --name-only "${LAST_FORK_SHA}..${FORK_HEAD_SHA}" -- "${HDL_GLOBS[@]}" 2>/dev/null || echo NONEMPTY)
-        if [[ -z "${UPSTREAM_HDL_DIFF}" && -z "${FORK_HDL_DIFF}" ]]; then
-            echo "No HDL paths changed in upstream ${LAST_UPSTREAM_SHA:0:7}..${UPSTREAM_SHA7} or fork ${LAST_FORK_SHA:0:7}..${FORK_HEAD_SHA:0:7} — skipping merge + Quartus."
-            # Still update release body so sync_unstable.sh's last_unstable_sha pre-check skips next time too.
-            gh release edit "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" --notes "Per-core unstable RBFs built off upstream HEAD. Last ${RETENTION} retained per filename pattern.
+fi
+if [[ -n "${LAST_UPSTREAM_SHA}" && -n "${LAST_MASTER_SHA}" && -n "${LAST_BRANCH_SHA}" ]]; then
+    UPSTREAM_HDL_DIFF=$(git diff --name-only "${LAST_UPSTREAM_SHA}..${UPSTREAM_SHA}" -- "${HDL_GLOBS[@]}" 2>/dev/null || echo NONEMPTY)
+    MASTER_HDL_DIFF=$(git diff --name-only "${LAST_MASTER_SHA}..${MASTER_SHA}" -- "${HDL_GLOBS[@]}" 2>/dev/null || echo NONEMPTY)
+    BRANCH_HDL_DIFF=$(git diff --name-only "${LAST_BRANCH_SHA}..${UNSTABLE_BRANCH_SHA_BEFORE}" -- "${HDL_GLOBS[@]}" 2>/dev/null || echo NONEMPTY)
+    if [[ -z "${UPSTREAM_HDL_DIFF}" && -z "${MASTER_HDL_DIFF}" && -z "${BRANCH_HDL_DIFF}" ]]; then
+        echo "No HDL paths changed in upstream/master/unstable since last build (${LAST_UPSTREAM_SHA:0:7}/${LAST_MASTER_SHA:0:7}/${LAST_BRANCH_SHA:0:7}) — skipping merge + Quartus."
+        gh release edit "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" --notes "Per-core unstable RBFs built off upstream HEAD. Last ${RETENTION} retained per filename pattern.
 
-last_unstable_sha:      ${UPSTREAM_SHA}
-last_unstable_fork_sha: ${FORK_HEAD_SHA}
-last_unstable_ts:       $(date -u +%Y%m%d_%H%M)"
-            exit 0
-        fi
+last_unstable_sha:        ${UPSTREAM_SHA}
+last_unstable_master_sha: ${MASTER_SHA}
+last_unstable_branch_sha: $(git rev-parse HEAD)
+last_unstable_ts:         $(date -u +%Y%m%d_%H%M)"
+        exit 0
     fi
 fi
 
@@ -113,16 +142,28 @@ train_rerere
 echo "END rerere-train"
 echo
 
-# Merge upstream HEAD into the fork's MAIN_BRANCH working tree. --no-commit
-# leaves the merge staged but uncommitted; we never push, so the merge state
-# lives only inside this runner. On conflict, notify_error.sh emails the
-# maintainer + exits 1 (set -e then terminates the script — no partial upload
-# can happen because gh release upload is downstream).
-git merge -Xignore-all-space --no-commit "${UPSTREAM_SHA}" || ./.github/notify_error.sh "UNSTABLE MERGE CONFLICT" "$@"
+# Merge upstream HEAD into unstable. On conflict, notify_error.sh emails
+# maintainer + exits 1; unstable branch stays at the catchup-only state,
+# so a partial merge never lands on origin/unstable. Maintainer resolves
+# manually (`git clone; git checkout unstable; git merge upstream/...;
+# <resolve>; git commit; git push origin unstable`); next run's rerere
+# training walks that resolution commit and auto-replays it.
+git merge -Xignore-all-space --no-ff "${UPSTREAM_SHA}" \
+    -m "BOT: Unstable merge of upstream ${UPSTREAM_SHA7}" \
+    || ./.github/notify_error.sh "UNSTABLE MERGE CONFLICT" "$@"
 
 # [MiSTer-DB9 BEGIN] - status bit collision tripwire (fork-only)
 ./.github/check_status_collision.sh || ./.github/notify_error.sh "UNSTABLE STATUS BIT COLLISION" "$@"
 # [MiSTer-DB9 END]
+
+# Push the merge commits to origin/unstable before Quartus. This anchors the
+# rerere-trained merge state (including the just-resolved upstream merge) so
+# the next run's train_rerere can replay it even if Quartus fails downstream.
+UNSTABLE_BRANCH_SHA=$(git rev-parse HEAD)
+if [[ "${UNSTABLE_BRANCH_SHA}" != "${UNSTABLE_BRANCH_SHA_BEFORE}" ]]; then
+    echo "Pushing merged unstable branch (${UNSTABLE_BRANCH_SHA_BEFORE:0:7} -> ${UNSTABLE_BRANCH_SHA:0:7})..."
+    retry -- git push origin unstable
+fi
 
 # Submodule init only when the merged tree actually carries submodules — most
 # MiSTer cores have none and the network call is pure overhead.
@@ -259,16 +300,17 @@ retry -- gh release upload "${UNSTABLE_TAG}" \
     --clobber \
     "${UPLOAD_FILES[@]}"
 
-# Annotate release body with last successful upstream + fork SHAs so the
-# pre-check at the top of this script (and sync_unstable.sh's HEAD compare)
-# can diff-skip when nothing relevant moved.
+# Annotate release body with last successful upstream / master / unstable-
+# branch SHAs so the pre-check at the top of this script (and sync_unstable.sh's
+# HEAD compare) can diff-skip when nothing relevant moved.
 echo
 echo "Updating release body with last-built SHAs..."
 NEW_BODY="Per-core unstable RBFs built off upstream HEAD. Last ${RETENTION} retained per filename pattern.
 
-last_unstable_sha:      ${UPSTREAM_SHA}
-last_unstable_fork_sha: ${FORK_HEAD_SHA}
-last_unstable_ts:       ${TIMESTAMP}"
+last_unstable_sha:        ${UPSTREAM_SHA}
+last_unstable_master_sha: ${MASTER_SHA}
+last_unstable_branch_sha: ${UNSTABLE_BRANCH_SHA}
+last_unstable_ts:         ${TIMESTAMP}"
 gh release edit "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" --notes "${NEW_BODY}"
 
 # Prune older assets per core to keep only ${RETENTION} most-recent RBFs.
