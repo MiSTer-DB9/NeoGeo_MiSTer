@@ -24,20 +24,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/retry.sh"
 # shellcheck source=compute_source_hash.sh
 source "${SCRIPT_DIR}/compute_source_hash.sh"
+# shellcheck source=gha_emit.sh
+source "${SCRIPT_DIR}/gha_emit.sh"
 
 UPSTREAM_REPO="https://github.com/MiSTer-devel/NeoGeo_MiSTer.git"
 MAIN_BRANCH="24MHz_cpu_only"
 
 # shellcheck source=unstable_lib.sh
 source "${SCRIPT_DIR}/unstable_lib.sh"
-
-emit_skip() {
-    echo "skip=$1" >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT not set — must run inside GitHub Actions}"
-}
-
-emit_env() {
-    echo "$1=$2" >> "${GITHUB_ENV:?GITHUB_ENV not set — must run inside GitHub Actions}"
-}
 
 # Fork-only cores have no upstream HEAD to follow — silently no-op.
 if [[ -z "${UPSTREAM_REPO}" ]]; then
@@ -51,7 +45,6 @@ git remote remove upstream 2> /dev/null || true
 git remote add upstream "${UPSTREAM_REPO}"
 retry -- git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules upstream
 UPSTREAM_SHA=$(git rev-parse "remotes/upstream/${MAIN_BRANCH}")
-UPSTREAM_SHA7="${UPSTREAM_SHA:0:7}"
 echo "Upstream HEAD @ ${MAIN_BRANCH}: ${UPSTREAM_SHA}"
 
 export GIT_MERGE_AUTOEDIT=no
@@ -137,7 +130,6 @@ fi
 # Pass state forward to the build phase via $GITHUB_ENV — same job, same
 # runner, working tree already prepared.
 emit_env UPSTREAM_SHA "${UPSTREAM_SHA}"
-emit_env UPSTREAM_SHA7 "${UPSTREAM_SHA7}"
 emit_env MASTER_SHA "${MASTER_SHA}"
 emit_env UNSTABLE_BRANCH_SHA_BEFORE "${UNSTABLE_BRANCH_SHA_BEFORE}"
 emit_env RELEASE_EXISTS "${RELEASE_EXISTS}"

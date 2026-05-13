@@ -50,10 +50,10 @@ source "${SCRIPT_DIR}/unstable_lib.sh"
 # runner — the upstream remote is already configured, the unstable branch
 # is checked out, and the catchup-merge with master has already happened).
 UPSTREAM_SHA="${UPSTREAM_SHA:?UPSTREAM_SHA env not set — should be exported by unstable_preflight.sh}"
-UPSTREAM_SHA7="${UPSTREAM_SHA7:?UPSTREAM_SHA7 env not set — should be exported by unstable_preflight.sh}"
 MASTER_SHA="${MASTER_SHA:?MASTER_SHA env not set — should be exported by unstable_preflight.sh}"
 UNSTABLE_BRANCH_SHA_BEFORE="${UNSTABLE_BRANCH_SHA_BEFORE:?UNSTABLE_BRANCH_SHA_BEFORE env not set — should be exported by unstable_preflight.sh}"
 RELEASE_EXISTS="${RELEASE_EXISTS:?RELEASE_EXISTS env not set — should be exported by unstable_preflight.sh}"
+UPSTREAM_SHA7="${UPSTREAM_SHA:0:7}"
 
 echo "Resuming after preflight: upstream=${UPSTREAM_SHA7} master=${MASTER_SHA:0:7} unstable=${UNSTABLE_BRANCH_SHA_BEFORE:0:7}"
 
