@@ -19,23 +19,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=compute_source_hash.sh
 source "${SCRIPT_DIR}/compute_source_hash.sh"
+# shellcheck source=gha_emit.sh
+source "${SCRIPT_DIR}/gha_emit.sh"
+# shellcheck source=pristine_upstream_tripwire.sh
+source "${SCRIPT_DIR}/pristine_upstream_tripwire.sh"
 
 MAIN_BRANCH="master"
 TAG_PREFIX="stable/${MAIN_BRANCH}/"
 
-emit_skip() {
-    echo "skip=$1" >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT not set — must run inside GitHub Actions}"
-}
-
-# Pristine-upstream tripwire (mirror of original release_v2.sh L26-36).
-SATURN_HIT=$(find . -maxdepth 4 -path '*/sys/joydb9saturn.v' -type f -print -quit 2>/dev/null)
-if [[ -z "${SATURN_HIT}" ]]; then
-    ANY_SYS=$(find . -maxdepth 4 -type d -name sys -print -quit 2>/dev/null)
-    if [[ -n "${ANY_SYS}" ]]; then
-        echo "Fork is pristine upstream (no */sys/joydb9saturn.v within depth 4). Run apply_db9_framework.sh before enabling builds. Skipping."
-        emit_skip true
-        exit 0
-    fi
+if is_pristine_upstream; then
+    emit_skip true
+    exit 0
 fi
 
 # gh + jq are preinstalled on ubuntu-latest; defensive checks match release_v2.sh.
