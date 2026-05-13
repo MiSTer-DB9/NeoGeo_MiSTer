@@ -29,6 +29,7 @@ source "${SCRIPT_DIR}/gha_emit.sh"
 
 UPSTREAM_REPO="https://github.com/MiSTer-devel/NeoGeo_MiSTer.git"
 MAIN_BRANCH="master"
+UPSTREAM_BRANCH="master"
 
 # shellcheck source=unstable_lib.sh
 source "${SCRIPT_DIR}/unstable_lib.sh"
@@ -44,8 +45,8 @@ echo "Fetching upstream:"
 git remote remove upstream 2> /dev/null || true
 git remote add upstream "${UPSTREAM_REPO}"
 retry -- git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules upstream
-UPSTREAM_SHA=$(git rev-parse "remotes/upstream/${MAIN_BRANCH}")
-echo "Upstream HEAD @ ${MAIN_BRANCH}: ${UPSTREAM_SHA}"
+UPSTREAM_SHA=$(git rev-parse "remotes/upstream/${UPSTREAM_BRANCH}")
+echo "Upstream HEAD @ ${UPSTREAM_BRANCH}: ${UPSTREAM_SHA}"
 
 export GIT_MERGE_AUTOEDIT=no
 git config --global user.email "theypsilon@gmail.com"
