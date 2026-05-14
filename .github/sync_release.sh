@@ -18,7 +18,6 @@ MAIN_BRANCH="24MHz_cpu_only"
 UPSTREAM_BRANCH="master"
 COMPILATION_INPUT=(NeoGeo.qpf)
 COMPILATION_OUTPUT=(output_files/NeoGeo.rbf)
-QUARTUS_IMAGE="${QUARTUS_IMAGE:?QUARTUS_IMAGE env not set — populated by workflow Resolve-Quartus-image step}"
 
 # fork-only cores have no upstream; sync_release is a no-op
 if [[ -z "${UPSTREAM_REPO}" ]]; then
@@ -113,7 +112,7 @@ git merge -Xignore-all-space --no-commit "${COMMIT_TO_MERGE}" || ./.github/notif
 
 git submodule update --init --recursive
 
-# merge + push; release.yml picks up the push and builds.
+# merge + push, then POST workflow_dispatch to release.yml.
 # NEED_REBUILD only picks the commit subject — release.sh's source-hash decides
 # the real rebuild.
 if [[ "${NEED_REBUILD}" == "true" ]]; then
@@ -122,3 +121,21 @@ else
     git commit -m "BOT: Merging upstream, no core released."
 fi
 retry -- git push origin "${MAIN_BRANCH}"
+
+# Trigger release.yml. The push above uses the default GITHUB_TOKEN, and GH
+# Actions deliberately doesn't trigger workflows from GITHUB_TOKEN pushes (loop
+# guard), so release.yml's `on: push` is structurally unreachable from here.
+# But workflow_dispatch via API authenticated with GITHUB_TOKEN *does* fire
+# downstream runs (same-repo dispatch; cross-repo PAT not needed).
+WORKFLOW_DISPATCH_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches"
+echo
+echo "Triggering release.yml: POST ${WORKFLOW_DISPATCH_URL} ref=${MAIN_BRANCH}"
+curl --fail-with-body --retry 3 --retry-delay 10 --retry-all-errors \
+    --retry-connrefused --retry-max-time 120 --max-time 60 -X POST \
+    -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+    -H "Accept: application/vnd.github+json" \
+    -H "Content-Type: application/json" \
+    --data "{\"ref\":\"${MAIN_BRANCH}\"}" \
+    "${WORKFLOW_DISPATCH_URL}"
+echo
+echo "release.yml dispatch sent successfully."
