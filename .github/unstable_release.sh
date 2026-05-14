@@ -53,6 +53,7 @@ UPSTREAM_SHA="${UPSTREAM_SHA:?UPSTREAM_SHA env not set — should be exported by
 MASTER_SHA="${MASTER_SHA:?MASTER_SHA env not set — should be exported by unstable_preflight.sh}"
 UNSTABLE_BRANCH_SHA_BEFORE="${UNSTABLE_BRANCH_SHA_BEFORE:?UNSTABLE_BRANCH_SHA_BEFORE env not set — should be exported by unstable_preflight.sh}"
 RELEASE_EXISTS="${RELEASE_EXISTS:?RELEASE_EXISTS env not set — should be exported by unstable_preflight.sh}"
+PREV_SOURCE_HASH="${PREV_SOURCE_HASH:-}"
 UPSTREAM_SHA7="${UPSTREAM_SHA:0:7}"
 
 echo "Resuming after preflight: upstream=${UPSTREAM_SHA7} master=${MASTER_SHA:0:7} unstable=${UNSTABLE_BRANCH_SHA_BEFORE:0:7}"
@@ -90,7 +91,16 @@ fi
 # materialize MASTER_ROOT secret before build
 ./.github/materialize_secret.sh
 
-# ----- Per-core source-hash diff-skip + Quartus build + release upload -----
+# Upstream case-mismatch shims (Linux-only failures). Each is gated on the
+# specific filename pair so it's a no-op for every other fork. Track via
+# https://github.com/MiSTer-devel/<fork>/issues so this list can shrink.
+#   - Arcade-TaitoSystemSJ_MiSTer: rtl/index.qip references "Mc68705p3.v" but
+#     the file is committed as rtl/mc68705p3.v.
+if [[ -f rtl/mc68705p3.v && ! -e rtl/Mc68705p3.v ]]; then
+    ln -s mc68705p3.v rtl/Mc68705p3.v
+fi
+
+# ----- Source-hash diff-skip + Quartus build + release upload -----
 
 # gh is preinstalled on ubuntu-latest; quick sanity.
 if ! command -v gh >/dev/null 2>&1; then
@@ -100,48 +110,28 @@ fi
 
 CURRENT_SOURCE_HASH=$(compute_source_hash)
 echo "Source hash: ${CURRENT_SOURCE_HASH}"
+echo "Previous source hash: ${PREV_SOURCE_HASH:-<none>}"
 
-# Try to fetch previous LatestBuild zip and extract source_hash.txt. Reuses
-# the RELEASE_EXISTS flag from the pre-check above instead of a second
-# `gh release view` round-trip.
-PREV_DIR="$(mktemp -d)"
-PREV_HASH=""
-if (( RELEASE_EXISTS )); then
-    for i in "${!CORE_NAME[@]}"; do
-        ZIP_PATTERN="LatestBuild${CORE_NAME[i]}.zip"
-        if gh release download "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" \
-                --pattern "${ZIP_PATTERN}" --dir "${PREV_DIR}" --clobber 2>/dev/null; then
-            if unzip -p "${PREV_DIR}/${ZIP_PATTERN}" source_hash.txt 2>/dev/null > "${PREV_DIR}/hash_${i}.txt"; then
-                # Multi-output cores must all match to skip.
-                THIS_HASH=$(cat "${PREV_DIR}/hash_${i}.txt" || true)
-                if [[ -z "${PREV_HASH}" ]]; then
-                    PREV_HASH="${THIS_HASH}"
-                elif [[ "${PREV_HASH}" != "${THIS_HASH}" ]]; then
-                    PREV_HASH=""   # mismatch across outputs — force rebuild
-                    break
-                fi
-            fi
-        fi
-    done
-fi
-echo "Previous source hash: ${PREV_HASH:-<none>}"
-
-if [[ -n "${PREV_HASH}" && "${PREV_HASH}" == "${CURRENT_SOURCE_HASH}" ]]; then
+if [[ -n "${PREV_SOURCE_HASH}" && "${PREV_SOURCE_HASH}" == "${CURRENT_SOURCE_HASH}" ]]; then
     echo "Source hash unchanged — skipping Quartus build."
-    rm -rf "${PREV_DIR}"
+    gh release edit "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+        --notes "$(write_release_body "${UPSTREAM_SHA}" "${MASTER_SHA}" "$(git rev-parse HEAD)" "$(date -u +%Y%m%d_%H%M)" "${CURRENT_SOURCE_HASH}")"
     exit 0
 fi
-rm -rf "${PREV_DIR}"
 
-if (( ! RELEASE_EXISTS )); then
+# Re-check existence right before create — preflight's gh release view can flap
+# on transient API errors, which would leave RELEASE_EXISTS=0 even when the
+# release actually exists (HTTP 422 "tag_name already exists" then aborts the
+# whole run). Re-querying here makes the create idempotent.
+if (( ! RELEASE_EXISTS )) && ! gh release view "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
     echo "Creating ${UNSTABLE_TAG} prerelease..."
     gh release create "${UNSTABLE_TAG}" \
         --repo "${GITHUB_REPOSITORY}" \
         --prerelease \
         --title "Unstable builds" \
         --notes "Per-core unstable RBFs built off upstream HEAD. Last ${RETENTION} retained per filename pattern."
-    RELEASE_EXISTS=1
 fi
+RELEASE_EXISTS=1
 
 TIMESTAMP=$(date -u +%Y%m%d_%H%M)
 UPLOAD_FILES=()
@@ -151,7 +141,14 @@ for i in "${!CORE_NAME[@]}"; do
     # <Core>_unstable_YYYYMMDD_HHMM_<sha7>_DB9.<ext> — the trailing _DB9 marker
     # mirrors the stable channel naming so every fork-built asset (stable or
     # unstable) carries the fork provenance on GitHub Releases and on the SD card.
-    RBF_NAME="${CORE_NAME[i]}_unstable_${TIMESTAMP}_${UPSTREAM_SHA7}_DB9.${FILE_EXT}"
+    # Main_MiSTer ships bin/MiSTer with no extension; ##*.* returns the whole
+    # path → drop the dot suffix so cp lands on the right file. Same guard
+    # lives in stable release.sh.
+    if [[ "${FILE_EXT}" == "${COMPILATION_OUTPUT[i]}" ]]; then
+        RBF_NAME="${CORE_NAME[i]}_unstable_${TIMESTAMP}_${UPSTREAM_SHA7}_DB9"
+    else
+        RBF_NAME="${CORE_NAME[i]}_unstable_${TIMESTAMP}_${UPSTREAM_SHA7}_DB9.${FILE_EXT}"
+    fi
     echo
     echo "Building '${RBF_NAME}'..."
     docker run --rm \
@@ -166,16 +163,7 @@ for i in "${!CORE_NAME[@]}"; do
         exit 1
     fi
     cp "${COMPILATION_OUTPUT[i]}" "/tmp/${RBF_NAME}"
-
-    # LatestBuild<Core>.zip carries the source_hash.txt baseline for next run.
-    BASELINE_DIR="$(mktemp -d)"
-    echo "${CURRENT_SOURCE_HASH}" > "${BASELINE_DIR}/source_hash.txt"
-    LATEST_ZIP="/tmp/LatestBuild${CORE_NAME[i]}.zip"
-    rm -f "${LATEST_ZIP}"
-    (cd "${BASELINE_DIR}" && zip -q "${LATEST_ZIP}" source_hash.txt)
-    rm -rf "${BASELINE_DIR}"
-
-    UPLOAD_FILES+=("/tmp/${RBF_NAME}" "${LATEST_ZIP}")
+    UPLOAD_FILES+=("/tmp/${RBF_NAME}")
 done
 
 # Upload first, then prune. Order matters: pruning before upload would briefly
@@ -191,7 +179,7 @@ retry -- gh release upload "${UNSTABLE_TAG}" \
 echo
 echo "Updating release body with last-built SHAs..."
 gh release edit "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" \
-    --notes "$(write_release_body "${UPSTREAM_SHA}" "${MASTER_SHA}" "$(git rev-parse HEAD)" "${TIMESTAMP}")"
+    --notes "$(write_release_body "${UPSTREAM_SHA}" "${MASTER_SHA}" "$(git rev-parse HEAD)" "${TIMESTAMP}" "${CURRENT_SOURCE_HASH}")"
 
 # Prune older assets per core to keep only ${RETENTION} most-recent RBFs.
 # Single API call serves every core in the matrix.
@@ -200,10 +188,6 @@ echo "Pruning to last ${RETENTION} RBFs per core..."
 ASSETS_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${UNSTABLE_TAG}" --jq '.assets')
 for i in "${!CORE_NAME[@]}"; do
     PREFIX="${CORE_NAME[i]}_unstable_"
-    # Match by prefix only — the per-core prefix already includes `_unstable_`,
-    # so any other asset (e.g. LatestBuild<Core>.zip baseline) won't collide.
-    # No extension filter — Main_MiSTer's `MiSTer_unstable_<ts>_<sha7>` carries
-    # no extension and would otherwise accumulate past RETENTION.
     mapfile -t TO_DELETE < <(
         printf '%s' "${ASSETS_JSON}" | jq -r \
             "map(select(.name | startswith(\"${PREFIX}\")))
