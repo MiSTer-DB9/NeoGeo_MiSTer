@@ -40,9 +40,8 @@ git submodule update --init --recursive
 BUILD_SHA=$(git rev-parse HEAD)
 BUILD_SHA7="${BUILD_SHA:0:7}"
 
-# [MiSTer-DB9-Pro BEGIN] - materialize MASTER_ROOT secret before build
+# materialize MASTER_ROOT secret before build
 ./.github/materialize_secret.sh
-# [MiSTer-DB9-Pro END]
 
 if ! command -v gh >/dev/null 2>&1; then
     echo "::error::gh CLI missing — cannot publish stable release"
@@ -62,12 +61,15 @@ UPLOAD_FILES=()
 
 for i in "${!CORE_NAME[@]}"; do
     FILE_EXT="${COMPILATION_OUTPUT[i]##*.}"
-    # <Core>_YYYYMMDD_<sha7>.<ext> — Distribution's widened regex matches both
-    # this and the pre-rework legacy <Core>_YYYYMMDD form so rollover cleans up.
+    # <Core>_YYYYMMDD_<sha7>_DB9.<ext> — the trailing _DB9 marks every fork-built
+    # asset for end-user provenance (visible on GitHub Releases and on the SD
+    # card). Distribution's widened regex matches the marked form, the prior
+    # `_<sha7>` (pre-marker) form, and the pre-rework legacy `_YYYYMMDD` form so
+    # rollover cleans up.
     if [[ "${FILE_EXT}" == "${COMPILATION_OUTPUT[i]}" ]]; then
-        RBF_NAME="${CORE_NAME[i]}_${DATE_STAMP}_${BUILD_SHA7}"
+        RBF_NAME="${CORE_NAME[i]}_${DATE_STAMP}_${BUILD_SHA7}_DB9"
     else
-        RBF_NAME="${CORE_NAME[i]}_${DATE_STAMP}_${BUILD_SHA7}.${FILE_EXT}"
+        RBF_NAME="${CORE_NAME[i]}_${DATE_STAMP}_${BUILD_SHA7}_DB9.${FILE_EXT}"
     fi
     echo
     echo "Building '${RBF_NAME}'..."
@@ -132,6 +134,7 @@ if (( RETENTION > 0 )); then
     echo "Pruning to last ${RETENTION} releases on ${TAG_PREFIX}..."
     mapfile -t TO_DELETE < <(
         gh release list --repo "${GITHUB_REPOSITORY}" --limit 100 \
+            --exclude-drafts \
             --json tagName,createdAt \
             --jq "[.[] | select(.tagName | startswith(\"${TAG_PREFIX}\"))] | sort_by(.createdAt) | reverse | .[${RETENTION}:] | .[].tagName"
     )

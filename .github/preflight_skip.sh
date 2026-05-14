@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [MiSTer-DB9 BEGIN] - stable pre-flight skip check
+# stable pre-flight skip check
 #
 # Runs right after actions/checkout, BEFORE the Resolve / Cache & load Quartus
 # image workflow steps. Two early-exit paths short-circuit the docker image
@@ -11,7 +11,7 @@
 #     prefix records the same source_hash, re-running Quartus would produce a
 #     bit-identical RBF.
 #
-# The build proper (release_v2.sh) still re-computes the hash to embed in the
+# The build proper (release.sh) still re-computes the hash to embed in the
 # new release body; this script is purely the gate.
 
 set -euo pipefail
@@ -32,7 +32,7 @@ if is_pristine_upstream; then
     exit 0
 fi
 
-# gh + jq are preinstalled on ubuntu-latest; defensive checks match release_v2.sh.
+# gh + jq are preinstalled on ubuntu-latest; defensive checks match release.sh.
 if ! command -v gh >/dev/null 2>&1; then
     echo "::error::gh CLI missing — cannot query previous stable release"
     exit 1
@@ -47,7 +47,11 @@ echo "Source hash: ${CURRENT_SOURCE_HASH}"
 
 # Two-step lookup: gh release list --json does NOT expose `body`, only
 # tagName/createdAt — fetch the newest matching tag, then gh release view it.
+# --exclude-drafts skips any straggler draft left behind by manual operations
+# (e.g. a partial historic backfill), which would otherwise be picked first
+# because its createdAt is more recent than the actually-latest real build.
 PREV_TAG=$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 100 \
+    --exclude-drafts \
     --json tagName,createdAt \
     --jq "[.[] | select(.tagName | startswith(\"${TAG_PREFIX}\"))] | sort_by(.createdAt) | reverse | .[0].tagName // \"\"" \
     2>/dev/null || echo "")
@@ -70,4 +74,3 @@ if [[ "${FORCED:-false}" != "true" && -n "${PREV_HASH}" && "${PREV_HASH}" == "${
 fi
 
 emit_skip false
-# [MiSTer-DB9 END]
