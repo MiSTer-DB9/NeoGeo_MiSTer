@@ -73,9 +73,8 @@ git merge -Xignore-all-space --no-ff "${UPSTREAM_SHA}" \
     -m "BOT: Unstable merge of upstream ${UPSTREAM_SHA7}" \
     || ./.github/notify_error.sh "UNSTABLE MERGE CONFLICT" "$@"
 
-# [MiSTer-DB9 BEGIN] - status bit collision tripwire (fork-only)
+# status bit collision tripwire (fork-only)
 ./.github/check_status_collision.sh || ./.github/notify_error.sh "UNSTABLE STATUS BIT COLLISION" "$@"
-# [MiSTer-DB9 END]
 
 # Push the merge commits to origin/${UNSTABLE_BRANCH} before Quartus — anchors
 # the rerere-trained merge state so the next run's train_rerere can replay it
@@ -88,9 +87,8 @@ if [[ -f .gitmodules ]]; then
     git submodule update --init --recursive
 fi
 
-# [MiSTer-DB9-Pro BEGIN] - materialize MASTER_ROOT secret before build
+# materialize MASTER_ROOT secret before build
 ./.github/materialize_secret.sh
-# [MiSTer-DB9-Pro END]
 
 # ----- Per-core source-hash diff-skip + Quartus build + release upload -----
 
@@ -150,7 +148,10 @@ UPLOAD_FILES=()
 
 for i in "${!CORE_NAME[@]}"; do
     FILE_EXT="${COMPILATION_OUTPUT[i]##*.}"
-    RBF_NAME="${CORE_NAME[i]}_unstable_${TIMESTAMP}_${UPSTREAM_SHA7}.${FILE_EXT}"
+    # <Core>_unstable_YYYYMMDD_HHMM_<sha7>_DB9.<ext> — the trailing _DB9 marker
+    # mirrors the stable channel naming so every fork-built asset (stable or
+    # unstable) carries the fork provenance on GitHub Releases and on the SD card.
+    RBF_NAME="${CORE_NAME[i]}_unstable_${TIMESTAMP}_${UPSTREAM_SHA7}_DB9.${FILE_EXT}"
     echo
     echo "Building '${RBF_NAME}'..."
     docker run --rm \
