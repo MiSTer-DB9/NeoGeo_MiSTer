@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Install Quartus Standard natively into $QUARTUS_TARGET (= /opt/intelFPGA/<ver>)
-# via quartus-install.py, then prune the installed tree. Invoked only on a
-# cache miss by the quartus-install-cache composite action; the cache-hit path
-# untars a previously-built tree and never runs this.
+# via quartus-install.py, then prune the installed tree. Invoked by the
+# central tarball publisher (.github/workflows/publish_quartus_artifact.yml) and, as
+# the last-resort tier, by the quartus-toolchain action on a cache +
+# artifact miss; the cache/artifact tiers untar a prebuilt tree and skip this.
 #
 # Env in:
 #   QUARTUS_VERSION       quartus-install.py version key, e.g. 17.0std
@@ -22,8 +23,8 @@ set -euo pipefail
 
 # Privilege prefix. Defaults to sudo (ubuntu-latest passwordless sudo). Set
 # SUDO="" to run as root. Single-sourced between the per-fork tier-3 provision
-# (quartus-image-or-install) and the central tarball publisher
-# (.github/workflows/build_quartus_image.yml), which both invoke this verbatim.
+# (quartus-toolchain) and the central tarball publisher
+# (.github/workflows/publish_quartus_artifact.yml), which both invoke this verbatim.
 SUDO="${SUDO-sudo}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
