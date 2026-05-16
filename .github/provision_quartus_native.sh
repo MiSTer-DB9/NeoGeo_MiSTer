@@ -20,10 +20,10 @@
 
 set -euo pipefail
 
-# Privilege prefix. Empty when already root — the docker image build
-# (quartus-native.Dockerfile) reuses this script verbatim as root with SUDO="",
-# so the install/prune logic stays single-sourced between CI provision fallback
-# and the prebuilt image.
+# Privilege prefix. Defaults to sudo (ubuntu-latest passwordless sudo). Set
+# SUDO="" to run as root. Single-sourced between the per-fork tier-3 provision
+# (quartus-image-or-install) and the central tarball publisher
+# (.github/workflows/build_quartus_image.yml), which both invoke this verbatim.
 SUDO="${SUDO-sudo}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
