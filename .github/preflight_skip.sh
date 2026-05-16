@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # stable pre-flight skip check
 #
-# Runs right after actions/checkout, BEFORE the Resolve / Cache & load Quartus
-# image workflow steps. Two early-exit paths short-circuit the docker image
-# work via the workflow step's `if: steps.preflight.outputs.skip != 'true'`:
+# Runs right after actions/checkout, BEFORE the Resolve Quartus toolchain +
+# compile workflow steps. Two early-exit paths short-circuit the toolchain
+# resolve + Quartus compile via the workflow step's
+# `if: steps.preflight.outputs.skip != 'true'`:
 #
 #  1. Pristine-upstream tripwire — refuse to build an un-ported fork's first
 #     BOT-setup push as a stock-upstream RBF.
@@ -73,4 +74,9 @@ if [[ "${FORCED:-false}" != "true" && -n "${PREV_HASH}" && "${PREV_HASH}" == "${
     exit 0
 fi
 
+# Hand the hash to release_publish.sh so it records the same value in the
+# release body without recomputing it (and without a redundant submodule
+# init) on a different runner — mirrors how the unstable channel threads
+# source_hash from unstable_merge.sh to unstable_publish.sh.
+emit_out source_hash "${CURRENT_SOURCE_HASH}"
 emit_skip false
