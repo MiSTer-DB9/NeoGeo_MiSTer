@@ -130,7 +130,7 @@ runs:
         # Needs a write-capable token; PULL_TOKEN is read-only, so this only
         # succeeds where a packages:write token is logged in (the central
         # publish_quartus_artifact.yml). Failure here is non-fatal.
-        if zstd -q -19 --long -T0 -o "${ZST}" "${TARBALL}" 2>/dev/null; then
+        if zstd -q -12 --long -T0 -o "${ZST}" "${TARBALL}" 2>/dev/null; then
             ( cd "$(dirname "${ZST}")" \
               && retry -n 3 -d 20 -- oras push "${REF}" \
                    --artifact-type "${ARTIFACT_TYPE}" \
