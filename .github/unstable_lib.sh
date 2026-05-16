@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shared constants + helpers for the unstable channel.
-# Sourced by both unstable_preflight.sh (cheap pre-check + state setup) and
-# unstable_release.sh (rerere train + merge + Quartus build + upload).
+# Sourced by unstable_preflight.sh (cheap pre-check + state setup),
+# unstable_merge.sh (merge + body advance), and unstable_publish.sh (upload).
 #
 # UNSTABLE_TAG / RETENTION are hard-coded by design — same across every fork,
 # no per-section templating. UNSTABLE_BRANCH derives from MAIN_BRANCH so the
@@ -21,13 +21,14 @@ RETENTION=7
 # Same shape from both the pre-check skip path and the post-build success
 # path so they cannot drift apart.
 write_release_body() {
-    local upstream_sha="$1" master_sha="$2" branch_sha="$3" ts="$4"
+    local upstream_sha="$1" master_sha="$2" branch_sha="$3" ts="$4" source_hash="${5:-}"
     local existing_body
     existing_body=$(gh release view "${UNSTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body' 2>/dev/null || echo "")
     UPSTREAM_SHA="${upstream_sha}" \
     MASTER_SHA="${master_sha}" \
     BRANCH_SHA="${branch_sha}" \
     TS="${ts}" \
+    SOURCE_HASH="${source_hash}" \
     MAIN_BRANCH="${MAIN_BRANCH}" \
     RETENTION="${RETENTION}" \
     EXISTING_BODY="${existing_body}" \
@@ -35,11 +36,13 @@ write_release_body() {
 import os, re, sys
 branch = os.environ["MAIN_BRANCH"]
 header = f"Per-core unstable RBFs built off upstream HEAD. Last {os.environ['RETENTION']} retained per filename pattern."
+sh = os.environ.get("SOURCE_HASH", "")
 new_stanza = (
     f"last_unstable_sha:        {os.environ['UPSTREAM_SHA']}\n"
     f"last_unstable_master_sha: {os.environ['MASTER_SHA']}\n"
     f"last_unstable_branch_sha: {os.environ['BRANCH_SHA']}\n"
     f"last_unstable_ts:         {os.environ['TS']}"
+    + (f"\nsource_hash:              {sh}" if sh else "")
 )
 stanzas = {}
 order = []
