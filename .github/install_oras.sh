@@ -5,7 +5,7 @@
 # the PRIVATE ghcr package ghcr.io/mister-db9/quartus-native:<ver> — i.e. a
 # bare zstd tarball in a registry, NOT a docker image. This is the durable,
 # cross-repo, EULA-private fallback the GH Actions cache restores from on a
-# miss (see actions/quartus-image-or-install/action.yml).
+# miss (see actions/quartus-toolchain/action.yml).
 #
 # Idempotent: no-ops if oras is already on PATH at the pinned version.
 # ubuntu-latest does not ship oras; the static release tarball is fetched from
