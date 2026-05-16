@@ -40,10 +40,10 @@ CORE_NAME=(NeoGeo_24MHz_cpu_only)
 MAIN_BRANCH="24MHz_cpu_only"
 COMPILATION_INPUT=(NeoGeo.qpf)
 COMPILATION_OUTPUT=(output_files/NeoGeo.rbf)
-# Docker path: QUARTUS_IMAGE from the workflow's Resolve-Quartus-image step.
-# Native path: QUARTUS_NATIVE_VERSION (resolved std key) + QUARTUS_NATIVE_HOME
-# (/opt/intelFPGA/<ver>, exported by the quartus-install-cache action). Exactly
-# one path is active per build; require at least one to be set.
+# Native Quartus Standard only: QUARTUS_NATIVE_VERSION (resolved std key from
+# the workflow's Resolve-Quartus-Standard-version step) + QUARTUS_NATIVE_HOME
+# (/opt/intelFPGA/<ver>, exported by the quartus-install-cache action). Both
+# required.
 resolve_quartus_env
 
 # UNSTABLE_TAG / UNSTABLE_BRANCH / RETENTION + write_release_body shared with
