@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   preflight:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       skip: ${{ steps.preflight.outputs.skip }}
       merge_skip: ${{ steps.merge.outputs.skip }}
@@ -76,7 +76,7 @@ jobs:
   build:
     needs: preflight
     if: ${{ needs.preflight.outputs.skip != 'true' && needs.preflight.outputs.merge_skip != 'true' && needs.preflight.outputs.skip_quartus != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.preflight.outputs.matrix) }}
@@ -147,7 +147,7 @@ jobs:
     # !cancelled() (not needs.build.result == 'success') so a partial set still
     # publishes — fail-fast:false keeps siblings building.
     if: ${{ !cancelled() && needs.preflight.outputs.skip != 'true' && needs.preflight.outputs.merge_skip != 'true' && needs.preflight.outputs.skip_quartus != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
