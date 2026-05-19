@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# MiSTer-DB9 fork: post-merge port-validation gate (regression-only).
+#
+# Runs the fast static port-wiring checks (emu_portmap_check.py + the Step-6
+# checklist) at the same post-merge / pre-Quartus slot as
+# check_status_collision.sh, but as a DELTA gate: it fails only if the upstream
+# merge INTRODUCED a new failure relative to the pre-merge tree. Pre-existing
+# latent issues and legitimately bespoke cores (e.g. Menu_MiSTer, whose
+# wrapper-shape checks already emit n/a) never wedge the pipeline.
+#
+# This catches the class check_status_collision.sh does not — e.g. a core
+# whose <core>.sv references status[127:126] while its sys/hps_io.v is only
+# 64-bit (Step-6 #10), the dead-UserIO-selector defect that motivated this
+# gate. Pure grep/awk/python over one core dir: ~1-2 s, no Quartus, no
+# iverilog, no network.
+#
+#   merge_validate.sh baseline <core_dir>   # snapshot the PRE-merge failures
+#   merge_validate.sh check    <core_dir>   # fail iff merge added a failure
+#
+# Exit: check → 0 (no regression / no baseline = fail-open), 1 (regression).
+#       baseline → always 0 (informational; never blocks the sync).
+#
+# emu_portmap_check.py / step6.sh / joydb_map_check.py / mt32_gate_check.py /
+# snac_active_check.py are symlinks to the canonical Forks_MiSTer/test/lib
+# copies (single source of truth, also driving run_fleet_audit.sh);
+# setup_cicd.sh's `cp -rL` dereferences them into each fork, exactly like
+# retry.sh / rerere_train.sh. canonical_drift_check is intentionally NOT
+# wired here: it compares a fork's sys/* against Forks_MiSTer's
+# fork_ci_template/sys canonical, which does not exist inside a fork repo
+# (the fork only carries the already-materialised copies). Drift is a
+# fleet/umbrella check (run_fleet_audit.sh + Tier-0), not a per-fork merge
+# gate.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORTMAP="${SCRIPT_DIR}/emu_portmap_check.py"
+JOYDBMAP="${SCRIPT_DIR}/joydb_map_check.py"
+MT32CHK="${SCRIPT_DIR}/mt32_gate_check.py"
+SNACCHK="${SCRIPT_DIR}/snac_active_check.py"
+JOYDBSEM="${SCRIPT_DIR}/joydb_semantic_check.py"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/step6.sh"
+
+# Step-6 ids that are merge-functional and therefore block on regression.
+# Excluded on purpose: 1 (EOL) / 2 (legacy JOY_FLAG) / 8 (.qsf staged) — git
+# index-state noise at `git merge --no-commit`, not a wiring break; still
+# printed by step6_verify as info, just never gated here. 11 (Saturn-first
+# CONF_STR order) IS blocking — an upstream CONF_STR reorder is a real
+# OSD-cycle ghost-input hazard (the fork hazard notes).
+BLOCKING_STEP6=" 3 4 4b 5 6 7 10 11 "
+
+BASELINE_FILE="${RUNNER_TEMP:-/tmp}/db9_merge_validate_baseline.txt"
+
+usage() { echo "usage: $0 {baseline|check} <core_dir>" >&2; exit 2; }
+
+# Print the sorted, unique set of BLOCKING failure tokens for <core_dir>:
+#   portmap        emu_portmap_check.py exited non-zero (defect/parse error)
+#   no-core-sv     no <core>.sv resolvable (portmap could not pick a top)
+#   step6-<id>     a blocking Step-6 check FAILed (id in BLOCKING_STEP6)
+#   mapcheck       joydb_map_check.py FATAL (P1/P2 leak / out-of-range bit /
+#                  missing OSD_STATUS guard). Its non-gating FINDINGs (bit-set
+#                  divergence) never produce a token, so they cannot wedge.
+#   mt32gate       mt32_gate_check.py FATAL (USER_IN_MT32 missing
+#                  mt32_disable, or an ungoverned USER_OUT MT32 fallback).
+#   snac           snac_active_check.py FATAL (a SNAC core's snac_active was
+#                  reset to the inert 1'b0 default by an upstream merge).
+#   joydbsem       joydb_semantic_check.py FATAL (P1/P2 role transpose:
+#                  same joydb bit-set, swapped concat order, a role bit at
+#                  a mismatched position, single shared role in CONF_STR --
+#                  Arcade-ComputerSpace/GnW class). Its advisory WARN tier
+#                  (Start/Select/fire heuristics) exits 0 -> never
+#                  tokenised, so a benign upstream CONF_STR rename cannot
+#                  wedge: only a merge that NEWLY introduces a transpose
+#                  trips it (regression-only delta cancels pre-existing).
+# All checks' non-gating FINDINGs exit 0 -> never tokenised, cannot wedge.
+compute_tokens() {
+  local dir="$1"
+  local pm rc=0 csv s6 jrc=0 mrc=0 src=0 jsrc=0 toks=() id
+  # canonical_drift_check is deliberately absent here (no canonical sys/ in
+  # a fork repo — see header). Drift is gated by run_fleet_audit.sh / Tier-0.
+  pm="$(python3 "$PORTMAP" "$dir" 2>&1)" || rc=$?
+  [ "$rc" -ne 0 ] && toks+=("portmap")
+  csv="$(printf '%s\n' "$pm" | extract_portmap_coresv)"
+  if [ -z "$csv" ]; then
+    toks+=("no-core-sv")
+  else
+    s6="$(step6_verify "$dir" "$csv" 2>&1)" || true
+    while IFS= read -r id; do
+      [ -n "$id" ] || continue
+      case "$BLOCKING_STEP6" in
+        *" $id "*) toks+=("step6-$id") ;;
+      esac
+    done < <(printf '%s\n' "$s6" | sed -n 's/^  step6: FAIL \([^ ]*\).*/\1/p')
+    python3 "$JOYDBMAP" "$dir" "$csv" >/dev/null 2>&1 || jrc=$?
+    [ "$jrc" -ne 0 ] && toks+=("mapcheck")
+    python3 "$MT32CHK" "$dir" "$csv" >/dev/null 2>&1 || mrc=$?
+    [ "$mrc" -eq 1 ] && toks+=("mt32gate")   # 1=FATAL; 2=parse (fail-open)
+    python3 "$SNACCHK" "$dir" "$csv" >/dev/null 2>&1 || src=$?
+    [ "$src" -eq 1 ] && toks+=("snac")       # 1=FATAL; 2=parse (fail-open)
+    python3 "$JOYDBSEM" "$dir" "$csv" >/dev/null 2>&1 || jsrc=$?
+    [ "$jsrc" -eq 1 ] && toks+=("joydbsem")  # 1=FATAL; 2=parse (fail-open)
+  fi
+  # No blocking failures → empty output, success. Same empty output on a rare
+  # internal error; the caller is fail-open by design (delta cancels anything
+  # present in both baseline and check), so the two are intentionally fungible.
+  [ "${#toks[@]}" -eq 0 ] && return 0
+  printf '%s\n' "${toks[@]}" | sort -u
+}
+
+[ "$#" -eq 2 ] || usage
+MODE="$1"
+CORE_DIR="${2%/}"
+[ -d "$CORE_DIR" ] || { echo "merge_validate: core dir not found: $CORE_DIR" >&2; exit 2; }
+
+case "$MODE" in
+  baseline)
+    compute_tokens "$CORE_DIR" > "$BASELINE_FILE" || true
+    echo "merge_validate: pre-merge baseline ($(wc -l < "$BASELINE_FILE" | tr -d ' ') blocking failure(s)):"
+    sed 's/^/  /' "$BASELINE_FILE" || true
+    exit 0
+    ;;
+  check)
+    cur="$(compute_tokens "$CORE_DIR" || true)"
+    if [ ! -f "$BASELINE_FILE" ]; then
+      echo "merge_validate: no pre-merge baseline at ${BASELINE_FILE} —" \
+           "skipping regression gate (fail-open)." >&2
+      exit 0
+    fi
+    # Regression = a blocking token present now but absent pre-merge.
+    regressions="$(comm -23 \
+      <(printf '%s\n' "$cur" | grep -v '^$' | sort -u) \
+      <(grep -v '^$' "$BASELINE_FILE" | sort -u) || true)"
+    if [ -n "$regressions" ]; then
+      {
+        echo "UPSTREAM MERGE BROKE PORT VALIDATION"
+        echo "The upstream merge introduced these NEW port-wiring failure(s)"
+        echo "in ${CORE_DIR} (absent before the merge):"
+        printf '%s\n' "$regressions" | sed 's/^/  /'
+        echo
+        echo "These are the run_fleet_audit.sh checks (emu_portmap_check.py /"
+        echo "Step-6). Inspect with: Forks_MiSTer/test/run_fleet_audit.sh --core <name>"
+        echo "Likely cause: an upstream change clobbered a fork DB9 port,"
+        echo "marker, joydb wiring, or status-bit placement (e.g. joy_type"
+        echo "moved past this core's sys/hps_io.v width — Step-6 #10)."
+      } >&2
+      exit 1
+    fi
+    echo "merge_validate: OK (merge introduced no new port-wiring failures)."
+    exit 0
+    ;;
+  *) usage ;;
+esac
