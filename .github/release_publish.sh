@@ -12,6 +12,8 @@
 # Env contract (set by the workflow from preflight job outputs):
 #   BUILD_SHA SOURCE_HASH DATE_STAMP TIMESTAMP GITHUB_TOKEN GITHUB_REPOSITORY
 #   UPSTREAM_RELEASE_SHA / UPSTREAM_HEAD_AT_SYNC (workflow_dispatch inputs, may be empty)
+#   DERIVED_UPSTREAM_RELEASE_SHA / DERIVED_UPSTREAM_HEAD_AT_SYNC (preflight
+#     derive_provenance.sh outputs — git-derived fallback, may be empty)
 #   RETENTION (optional, default 0 = unbounded)
 
 set -euo pipefail
@@ -74,8 +76,29 @@ if [[ -z "${UPSTREAM_RELEASE_SHA:-}" || -z "${UPSTREAM_HEAD_AT_SYNC:-}" ]]; then
     done
 fi
 
-# Body is flat: one build, one release, one set of metadata. `source_hash:` is
-# the contract with the next run's skip lookup.
+# Last resort when there was nothing to inherit (a fork that never had a real
+# sync-dispatched run, e.g. its only prior releases are Historic RBF backfill
+# entries): the preflight derive_provenance.sh step git-derived these via
+# merge-base. Precedence: workflow_dispatch input (real sync) > inherited from
+# prior release (cheap, no git) > git-derived fallback (this).
+if [[ -z "${UPSTREAM_RELEASE_SHA:-}" || -z "${UPSTREAM_HEAD_AT_SYNC:-}" ]]; then
+    : "${UPSTREAM_RELEASE_SHA:=${DERIVED_UPSTREAM_RELEASE_SHA:-}}"
+    : "${UPSTREAM_HEAD_AT_SYNC:=${DERIVED_UPSTREAM_HEAD_AT_SYNC:-}}"
+    if [[ -n "${UPSTREAM_HEAD_AT_SYNC:-}" ]]; then
+        echo "Using git-derived upstream provenance: release=${UPSTREAM_RELEASE_SHA:-<none>} head=${UPSTREAM_HEAD_AT_SYNC:-<none>}"
+    fi
+fi
+
+# Body is flat: one build, one release, one set of metadata. Only the four
+# lines below are load-bearing: `source_hash:` is the contract with the next
+# run's skip lookup (preflight_skip.sh); `upstream_release_sha:` /
+# `upstream_head_at_sync:` are the contract with sync_dispatch.sh's clone-free
+# fast path. branch/build_sha/build_ts were dropped — none were ever parsed
+# (branch is in the tag prefix, build_sha in the annotated tag's target, the
+# date in the tag + GH created_at). `build:` links the workflow run that
+# produced this release (it carries the *.sta Quartus timing artifacts);
+# same URL shape as notify_error.sh. Order kept coherent with the unstable
+# channel's per-variant stanza: build → identity SHAs → source_hash.
 release_body() {
     local retention_label
     if (( RETENTION == 0 )); then
@@ -86,12 +109,10 @@ release_body() {
     cat <<EOF
 Stable RBF build for \`${MAIN_BRANCH}\`. Retention: ${retention_label} per branch.
 
-branch:                  ${MAIN_BRANCH}
-build_sha:               ${BUILD_SHA}
-build_ts:                ${TIMESTAMP}
-source_hash:             ${CURRENT_SOURCE_HASH}
-upstream_release_sha:    ${UPSTREAM_RELEASE_SHA:-}
-upstream_head_at_sync:   ${UPSTREAM_HEAD_AT_SYNC:-}
+build:                 ${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID:-}
+upstream_release_sha:  ${UPSTREAM_RELEASE_SHA:-}
+upstream_head_at_sync: ${UPSTREAM_HEAD_AT_SYNC:-}
+source_hash:           ${CURRENT_SOURCE_HASH}
 EOF
 }
 
