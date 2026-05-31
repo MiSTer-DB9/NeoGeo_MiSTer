@@ -39,6 +39,14 @@ JOYDBMAP="${SCRIPT_DIR}/joydb_map_check.py"
 MT32CHK="${SCRIPT_DIR}/mt32_gate_check.py"
 SNACCHK="${SCRIPT_DIR}/snac_active_check.py"
 JOYDBSEM="${SCRIPT_DIR}/joydb_semantic_check.py"
+CONFSTRCHK="${SCRIPT_DIR}/confstr_joytype_check.py"
+CORESVLINT="${SCRIPT_DIR}/coresv_lint.sh"
+QIPREG="${SCRIPT_DIR}/qip_registration_check.py"
+MARKERNEST="${SCRIPT_DIR}/marker_nesting_check.py"
+VPREC="${SCRIPT_DIR}/verilog_precedence_check.py"
+SATGATE="${SCRIPT_DIR}/saturn_gate_check.py"
+JOYDBBIND="${SCRIPT_DIR}/joydb_binding_check.py"
+STATUSFB="${SCRIPT_DIR}/status_feedback_check.py"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/step6.sh"
 
@@ -65,6 +73,20 @@ usage() { echo "usage: $0 {baseline|check} <core_dir>" >&2; exit 2; }
 #                  mt32_disable, or an ungoverned USER_OUT MT32 fallback).
 #   snac           snac_active_check.py FATAL (a SNAC core's snac_active was
 #                  reset to the inert 1'b0 default by an upstream merge).
+#   confstr        confstr_joytype_check.py FATAL (CONF_STR UserIO option
+#                  writes a status slice the joy_type/joy_2p decode never
+#                  reads -- NES 7fc497b dead-controller class; n/a for
+#                  bespoke/ext_ctrl cores, parse=2 fail-open).
+#   coresv         coresv_lint.sh FAIL (delimiter imbalance in <core>.sv --
+#                  the porter-regex / merge corruption class, e.g. 43db15c
+#                  `[4) : 0]}`. Comment/string-masked (), [], {} balance;
+#                  pure Python, zero false positive by construction. 2 =
+#                  <core>.sv unresolvable (fail-open).
+#   qipreg         qip_registration_check.py FATAL (a canonical fork
+#                  sys/*.{v,sv} present but unregistered in sys.qip/sys.tcl,
+#                  or a dangling registration -- Quartus silently skips the
+#                  file; the InputTest/Menu class. n/a for pristine cores,
+#                  parse=2 fail-open).
 #   joydbsem       joydb_semantic_check.py FATAL (P1/P2 role transpose:
 #                  same joydb bit-set, swapped concat order, a role bit at
 #                  a mismatched position, single shared role in CONF_STR --
@@ -73,10 +95,45 @@ usage() { echo "usage: $0 {baseline|check} <core_dir>" >&2; exit 2; }
 #                  tokenised, so a benign upstream CONF_STR rename cannot
 #                  wedge: only a merge that NEWLY introduces a transpose
 #                  trips it (regression-only delta cancels pre-existing).
+#   markers        marker_nesting_check.py FATAL (orphan END / wrong-family
+#                  close / unclosed BEGIN in <core>.sv or sys/sys_top.v --
+#                  the SNES dc15e64 class step6 #4's count cannot see).
+#                  n/a for pristine cores, parse=2 fail-open.
+#   vprec          verilog_precedence_check.py FATAL (a bare non-zero
+#                  literal as the whole operand of ||/&& -- the 3a94b0a
+#                  constant-true-arm class; scans the WHOLE core .v/.sv
+#                  tree). Delta is essential: it sees upstream-origin RTL,
+#                  so a pre-existing upstream quirk must cancel; only a
+#                  merge that NEWLY introduces one trips it.
+#   satgate        saturn_gate_check.py WEAK (a Saturn-capable wrapper core
+#                  whose .saturn_unlocked is a constant tie or unconnected
+#                  -> key gate decorative). Delta is the ONLY zero-FP form:
+#                  a legitimately-tied test core (InputTest 1'b1) is WEAK
+#                  in BOTH trees so the delta cancels it; only a
+#                  real->tied/absent change a merge introduces trips it.
+#   joydbbind      joydb_binding_check.py FATAL (the `joydb joydb` instance
+#                  fails to bind one or more ports of the canonical
+#                  fork_ci_template/sys/joydb.sv module -- a merge / hand-
+#                  edit dropped or typo-renamed e.g. .joy_raw / .joydb_2ena
+#                  / .USER_OUT_DRIVE, leaving the controller path silently
+#                  dead while every other check stays green. Zero-FP by
+#                  construction (canonical defines truth); n/a for bespoke
+#                  cores (no wrapper), parse=2 fail-open.
+#   statusfb       status_feedback_check.py FATAL (.status_in concat
+#                  truncates status[127:64], so every status_set pulse --
+#                  region detect, save-state load, BK callback -- silently
+#                  zeros joy_type/joy_2p and the UserIO Joystick OSD
+#                  selection reverts to Off on the next ROM load. The
+#                  Genesis/MegaCD/S32X 2026-05-26 class. n/a for cores
+#                  without a joy_type wrapper or without a .status_in port
+#                  (parse=2 fail-open). Delta cancels pre-existing latent
+#                  failures so only a merge that NEWLY introduces the
+#                  truncation trips it).
 # All checks' non-gating FINDINGs exit 0 -> never tokenised, cannot wedge.
 compute_tokens() {
   local dir="$1"
-  local pm rc=0 csv s6 jrc=0 mrc=0 src=0 jsrc=0 toks=() id
+  local pm rc=0 csv s6 jrc=0 mrc=0 src=0 jsrc=0 cfrc=0 crc=0 qrc=0
+  local mnrc=0 vprc=0 sgrc=0 jbrc=0 sfrc=0 toks=() id
   # canonical_drift_check is deliberately absent here (no canonical sys/ in
   # a fork repo — see header). Drift is gated by run_fleet_audit.sh / Tier-0.
   pm="$(python3 "$PORTMAP" "$dir" 2>&1)" || rc=$?
@@ -100,6 +157,22 @@ compute_tokens() {
     [ "$src" -eq 1 ] && toks+=("snac")       # 1=FATAL; 2=parse (fail-open)
     python3 "$JOYDBSEM" "$dir" "$csv" >/dev/null 2>&1 || jsrc=$?
     [ "$jsrc" -eq 1 ] && toks+=("joydbsem")  # 1=FATAL; 2=parse (fail-open)
+    python3 "$CONFSTRCHK" "$dir" "$csv" >/dev/null 2>&1 || cfrc=$?
+    [ "$cfrc" -eq 1 ] && toks+=("confstr")   # 1=FATAL; 2=parse (fail-open)
+    bash "$CORESVLINT" "$dir" "$csv" >/dev/null 2>&1 || crc=$?
+    [ "$crc" -eq 1 ] && toks+=("coresv")     # 1=syntax err; 2=parse (fail-open)
+    python3 "$QIPREG" "$dir" >/dev/null 2>&1 || qrc=$?
+    [ "$qrc" -eq 1 ] && toks+=("qipreg")     # 1=FATAL; 2=parse (fail-open)
+    python3 "$MARKERNEST" "$dir" "$csv" >/dev/null 2>&1 || mnrc=$?
+    [ "$mnrc" -eq 1 ] && toks+=("markers")   # 1=FATAL; 2=parse (fail-open)
+    python3 "$VPREC" "$dir" >/dev/null 2>&1 || vprc=$?
+    [ "$vprc" -eq 1 ] && toks+=("vprec")     # 1=FATAL; 2=parse (fail-open)
+    python3 "$SATGATE" "$dir" "$csv" >/dev/null 2>&1 || sgrc=$?
+    [ "$sgrc" -eq 1 ] && toks+=("satgate")   # 1=WEAK (delta-cancels legit tie)
+    python3 "$JOYDBBIND" "$dir" "$csv" >/dev/null 2>&1 || jbrc=$?
+    [ "$jbrc" -eq 1 ] && toks+=("joydbbind") # 1=FATAL; 2=parse (fail-open)
+    python3 "$STATUSFB" "$dir" "$csv" >/dev/null 2>&1 || sfrc=$?
+    [ "$sfrc" -eq 1 ] && toks+=("statusfb")  # 1=FATAL; 2=parse (fail-open)
   fi
   # No blocking failures → empty output, success. Same empty output on a rare
   # internal error; the caller is fail-open by design (delta cancels anything

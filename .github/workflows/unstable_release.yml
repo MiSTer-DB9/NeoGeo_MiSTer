@@ -48,8 +48,9 @@ jobs:
         NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # `skip_quartus=true` for a non-Quartus section (COMPILATION_INPUT=make,
-    # e.g. Main_DB9) so build/publish stay inert no-ops there.
+    # Defence-in-depth safety net: setup_cicd.sh routes COMPILATION_INPUT=make
+    # sections to unstable_release_make.yml; this template should never land
+    # on a make fork. If it does, skip cleanly.
     - name: Emit per-core matrix
       if: steps.preflight.outputs.skip != 'true'
       id: meta
@@ -57,13 +58,22 @@ jobs:
         first_input=$(echo 'NeoGeo.qpf' | awk '{print $1}')
         if [ "${first_input}" = "make" ]; then
           echo "skip_quartus=true" >> "$GITHUB_OUTPUT"
-          echo "Non-Quartus section (make) — skipping native Quartus build."
+          echo "::warning::Quartus template landed on a make fork — unstable_release_make.yml should be running instead."
           exit 0
         fi
         echo "skip_quartus=false" >> "$GITHUB_OUTPUT"
         matrix=$(./.github/emit_matrix.sh 'NeoGeo' 'NeoGeo.qpf' 'output_files/NeoGeo.rbf')
         echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
         echo "Matrix: ${matrix}"
+
+    # coresv_lint (in merge_validate.sh, run from unstable_merge.sh below)
+    # prefers verilator as a true SV syntax oracle on the post-merge
+    # <core>.sv. Gated by the SAME condition as the merge step so the cron
+    # ticks that skip (no upstream change — the common case) don't pay the
+    # apt install. ~seconds when it does run; merge_validate is CI-only.
+    - name: Install verilator (coresv_lint gate)
+      if: steps.preflight.outputs.skip != 'true' && steps.meta.outputs.skip_quartus != 'true'
+      run: sudo apt-get update && sudo apt-get install -y verilator
 
     - name: Merge upstream HEAD (once, pre fan-out)
       if: steps.preflight.outputs.skip != 'true' && steps.meta.outputs.skip_quartus != 'true'
@@ -145,8 +155,13 @@ jobs:
   publish:
     needs: [preflight, build]
     # !cancelled() (not needs.build.result == 'success') so a partial set still
-    # publishes — fail-fast:false keeps siblings building.
-    if: ${{ !cancelled() && needs.preflight.outputs.skip != 'true' && needs.preflight.outputs.merge_skip != 'true' && needs.preflight.outputs.skip_quartus != 'true' }}
+    # publishes — fail-fast:false keeps siblings building. But require preflight
+    # to have SUCCEEDED: if preflight itself failed (e.g. unstable_merge.sh hit a
+    # merge conflict, exit 22), its outputs are empty, the '!= true' checks all
+    # pass, and publish would run with blank env and die at unstable_publish.sh's
+    # "UPSTREAM_SHA env not set" guard — a spurious second failure on top of the
+    # real one. preflight.result=='success' gates that out.
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.skip != 'true' && needs.preflight.outputs.merge_skip != 'true' && needs.preflight.outputs.skip_quartus != 'true' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
