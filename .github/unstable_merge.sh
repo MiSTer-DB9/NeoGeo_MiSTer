@@ -65,9 +65,19 @@ echo
 # maintainer + exits 1; the unstable branch stays at the catchup-only state, so
 # a partial merge never lands on origin. Maintainer resolves manually; the next
 # run's rerere training walks that resolution and auto-replays it.
-git merge -Xignore-all-space --no-ff "${UPSTREAM_SHA}" \
-    -m "BOT: Unstable merge of upstream ${UPSTREAM_SHA7}" \
-    || ./.github/notify_error.sh "UNSTABLE MERGE CONFLICT" "$@"
+# `git merge` exits non-zero after ANY conflict — including when rerere
+# auto-resolved and staged every one (autoupdate), in which case --no-ff did not
+# create the merge commit (merge stops on conflict). Treat it as a real conflict
+# only if unmerged paths remain (→ notify + abort); otherwise finalize the
+# rerere-resolved merge commit here.
+if ! git merge -Xignore-all-space --no-ff "${UPSTREAM_SHA}" \
+    -m "BOT: Unstable merge of upstream ${UPSTREAM_SHA7}"; then
+    if git ls-files --unmerged | grep -q .; then
+        ./.github/notify_error.sh "UNSTABLE MERGE CONFLICT" "$@"
+    fi
+    echo "rerere auto-resolved all conflicts; finalizing the unstable merge commit."
+    git commit --no-edit -m "BOT: Unstable merge of upstream ${UPSTREAM_SHA7}"
+fi
 
 # status bit collision tripwire (fork-only)
 ./.github/check_status_collision.sh || ./.github/notify_error.sh "UNSTABLE STATUS BIT COLLISION" "$@"

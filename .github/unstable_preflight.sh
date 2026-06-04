@@ -57,6 +57,9 @@ git config --global rerere.enabled true
 # pipeline's style so a resolution recorded on the unstable canary replays when
 # stable merges the same upstream change against a different merge-base.
 git config --global merge.conflictstyle merge
+# Stage rerere's auto-applied resolutions (else they stay unmerged in the index
+# and the upstream merge still reports failure) — see sync_release.sh.
+git config --global rerere.autoupdate true
 
 echo
 echo "Preparing unstable branch:"
