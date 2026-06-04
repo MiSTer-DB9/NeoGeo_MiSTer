@@ -53,6 +53,10 @@ git config --global rerere.enabled true
 # upstream release via different ancestry) and rerere would miss. 2-way drops the
 # base → preimage = ours+theirs only → the canary resolution replays here.
 git config --global merge.conflictstyle merge
+# Stage rerere's auto-applied resolutions. Without autoupdate they are written to
+# the working tree but left UNMERGED in the index, so the merge below still
+# reports failure and the commit cannot proceed.
+git config --global rerere.autoupdate true
 
 echo
 echo "Syncing with upstream:"
@@ -136,7 +140,16 @@ echo
 # a bad baseline must never block the sync).
 ./.github/merge_validate.sh baseline . || true
 
-git merge -Xignore-all-space --no-commit "${COMMIT_TO_MERGE}" || ./.github/notify_error.sh "UPSTREAM MERGE CONFLICT" "$@"
+# `git merge` exits non-zero after ANY conflict — even when rerere auto-resolved
+# and staged every one (autoupdate). So a non-zero exit is a real conflict only
+# if unmerged paths actually remain; otherwise rerere resolved it and the
+# `git commit` further below lands the merge.
+if ! git merge -Xignore-all-space --no-commit "${COMMIT_TO_MERGE}"; then
+    if git ls-files --unmerged | grep -q .; then
+        ./.github/notify_error.sh "UPSTREAM MERGE CONFLICT" "$@"
+    fi
+    echo "rerere auto-resolved all conflicts in the upstream merge; proceeding."
+fi
 
 # status bit collision tripwire (fork-only)
 ./.github/check_status_collision.sh || ./.github/notify_error.sh "UPSTREAM STATUS BIT COLLISION" "$@"
