@@ -26,6 +26,8 @@ source "${SCRIPT_DIR}/retry.sh"
 source "${SCRIPT_DIR}/compute_source_hash.sh"
 # shellcheck source=gha_emit.sh
 source "${SCRIPT_DIR}/gha_emit.sh"
+# shellcheck source=rerere_train.sh
+source "${SCRIPT_DIR}/rerere_train.sh"  # configure_rerere
 
 UPSTREAM_REPO="https://github.com/MiSTer-devel/NeoGeo_MiSTer.git"
 MAIN_BRANCH="master"
@@ -51,7 +53,9 @@ echo "Upstream HEAD @ ${UPSTREAM_BRANCH}: ${UPSTREAM_SHA}"
 export GIT_MERGE_AUTOEDIT=no
 git config --global user.email "theypsilon@gmail.com"
 git config --global user.name "The CI/CD Bot"
-git config --global rerere.enabled true
+# rerere/merge policy (enabled + 2-way conflictstyle + autoupdate) — see
+# rerere_train.sh::configure_rerere for the per-knob rationale.
+configure_rerere
 
 echo
 echo "Preparing unstable branch:"
@@ -81,7 +85,8 @@ UNSTABLE_BRANCH_SHA_BEFORE=$(git rev-parse HEAD)
 if ! git merge-base --is-ancestor "${MASTER_SHA}" HEAD; then
     git merge -Xignore-all-space --no-ff "${MASTER_SHA}" \
         -m "BOT: Unstable catchup with ${MAIN_BRANCH} @ ${MASTER_SHA:0:7}" \
-        || ./.github/notify_error.sh "UNSTABLE MASTER CATCHUP CONFLICT" "$@"
+        || { record_unstable_failure "${UPSTREAM_SHA}" "${MASTER_SHA}" || true; \
+             ./.github/notify_error.sh "UNSTABLE MASTER CATCHUP CONFLICT" "$@"; }
 fi
 
 # Cheap pre-check: if neither upstream's new commits, nor stable master's

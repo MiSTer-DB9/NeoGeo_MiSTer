@@ -150,12 +150,19 @@ jobs:
     - name: Build stable RBF leg
       run: ./.github/release_build.sh '${{ matrix.core }}' '${{ matrix.input }}' '${{ matrix.output }}' '${{ needs.preflight.outputs.date_stamp }}' '${{ needs.preflight.outputs.build_sha }}' -- theypsilon@gmail.com neurorulez@gmail.com timothy.redaelli@gmail.com
       env:
-        NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         QUARTUS_NATIVE_VERSION: ${{ steps.mode.outputs.version }}
         QUARTUS_NATIVE_HOME: ${{ env.QUARTUS_NATIVE_HOME }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # 64 hex chars = 32 bytes. KEEP SECRET.
         MASTER_ROOT_HEX: ${{ secrets.MASTER_ROOT_HEX }}
+        # Timing/ALM regression gate (quartus_build.sh). Per-fork override via
+        # repo variables; default = quartus_build.sh's built-in fallback.
+        SEED_RETRY_MAX: ${{ vars.SEED_RETRY_MAX || '2' }}
+        TIMING_MARGIN_NS: ${{ vars.TIMING_MARGIN_NS || '0.5' }}
+        TIMING_RISK_FLOOR_NS: ${{ vars.TIMING_RISK_FLOOR_NS || '1.0' }}
+        ALM_UTIL_WARN_PCT: ${{ vars.ALM_UTIL_WARN_PCT || '80' }}
 
     - name: Upload RBF artifact
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
