@@ -135,7 +135,15 @@ do
 		continue
 	fi
 	git checkout -q "${parent1}^0"
-	if git merge ${other_parents} >/dev/null 2>&1
+	# MUST mirror the live merge below (line ~178 uses -Xignore-all-space).
+	# rerere keys on the rendered conflict text; replaying with a plain merge
+	# segments hunks differently than the -Xignore-all-space live merge, so the
+	# recorded resolution never matches and rerere misses. This is exactly why
+	# the upstream 2026-06-03 "Update sys." conflict failed to auto-resolve on
+	# stable despite the canary resolution existing on origin/unstable/<branch>
+	# (sys.qip matched by luck; NES.sv / sys/hps_io.sv, reindented by upstream,
+	# did not). Keep the training strategy options in lockstep with the live one.
+	if git merge -Xignore-all-space ${other_parents} >/dev/null 2>&1
 	then
 		# Cleanly merges
 		continue
@@ -181,6 +189,19 @@ if ! git merge -Xignore-all-space --no-commit "${COMMIT_TO_MERGE}"; then
         ./.github/notify_error.sh "UPSTREAM MERGE CONFLICT" "$@"
     fi
     echo "rerere auto-resolved all conflicts in the upstream merge; proceeding."
+fi
+
+# No-op guard: an "Already up to date." merge (the upstream release commit is
+# already an ancestor of ${MAIN_BRANCH} — e.g. a forced re-dispatch of an
+# already-synced core) leaves no MERGE_HEAD and nothing staged. The unconditional
+# `git commit` below would then die with "nothing to commit, working tree clean"
+# and fail the whole run under `set -e`. Detect that and exit cleanly instead.
+# Safe here because the fork branch always carries its own DB9 commits ahead of
+# upstream, so a real sync is always a 3-way merge (MERGE_HEAD set) — a pure
+# fast-forward that moves HEAD without staging cannot occur.
+if ! git rev-parse -q --verify MERGE_HEAD >/dev/null && git diff --cached --quiet; then
+    echo "Upstream ${COMMIT_TO_MERGE} already merged into ${MAIN_BRANCH}; nothing to merge — skipping."
+    exit 0
 fi
 
 # status bit collision tripwire (fork-only)
