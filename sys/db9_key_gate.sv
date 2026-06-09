@@ -1,7 +1,5 @@
 // [MiSTer-DB9-Pro BEGIN] - key gate v1.5 (per-customer SipHash MAC)
-// FPGA companion of Main_MiSTer/db9_key.cpp; the 40-byte key is a 32-byte
-// signed payload (customer_id/expiry/feature_mask) + 8-byte SipHash tag.
-// On a valid 40-byte 0xFE stream the
+// FPGA companion of Main_MiSTer/db9_key.cpp. On a valid 40-byte 0xFE stream the
 // SipHash tag matches, feature_mask is latched from payload bytes [24..28),
 // and saturn_unlocked goes high. On any failure feature_mask stays 0 and
 // gated features remain inert.

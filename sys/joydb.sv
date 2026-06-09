@@ -31,8 +31,7 @@
 // vanishes, db15_disable masks DB15 ghost outputs on all-low pin states,
 // db15_arm_delay_cnt cools down DB9MD re-detection across the swap window.
 // Suppressed when snac_active or mt32_primary_active drives USER_IO
-// externally (an active SNAC cable or MT32-pi I2C master would otherwise
-// be misread by the autodetect FSM as a controller signature).
+// externally.
 //
 // This file is fork-only (does not exist upstream), so it is implicitly
 // MiSTer-DB9. Only [MiSTer-DB9-Pro BEGIN/END] markers appear, to flag the
