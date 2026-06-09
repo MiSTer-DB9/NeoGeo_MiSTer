@@ -356,7 +356,6 @@ localparam CONF_STR = {
 	"O[127:126],UserIO Joystick,Off,Saturn,DB9MD,DB15;",
 	"O[125],UserIO Players, 1 Player,2 Players;",
 	// [MiSTer-DB9-Pro END]
-	"oS,Buttons Config.,ABCX(ABCD),ABCZ;",
 "-;",
 	"H3OP,FM,ON,OFF;",
 	"H3OQ,ADPCMA,ON,OFF;",
@@ -574,27 +573,14 @@ wire SYSTEM_CDZ = SYSTEM_CDx & SYSTEM_CD_TYPE;
 wire [15:0] sdram_sz;
 wire [21:0] gamma_bus;
 
-wire [31:0] joystick_0 = joydb_1ena ?
-	!status[60] ? {
-		// Z M Y S X C B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_1[9],joydb_1[11],joydb_1[8],joydb_1[10],joydb_1[7],joydb_1[6:0]}
-		} :
-		{
-		// X M Y S Z C B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_1[7],joydb_1[11],joydb_1[8],joydb_1[10],joydb_1[9],joydb_1[6:0]}
-	}
-: joystick_0_USB;
-
-wire [31:0] joystick_1 = joydb_2ena ?
-	!status[60] ? {
-		// Z M Y S X C B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_2[9],joydb_2[11],joydb_2[8],joydb_2[10],joydb_2[7],joydb_2[6:0]}
-		} :
-		{
-		// X M Y S Z C B A U D L R
-		OSD_STATUS? 32'b000000 : {joydb_2[7],joydb_2[11],joydb_2[8],joydb_2[10],joydb_2[9],joydb_2[6:0]}
-	}
-: joydb_1ena ? joystick_0_USB : joystick_1_USB;
+// [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: programmable remap matrix
+// joydb_*_mapped carry the DB9/DB15/Saturn buttons rewired into MiSTer-standard
+// order per the user's per-core/per-devtype map (UIO 0xFD). The CONF_STR-derived
+// default (gamepad_defaults) replaces the old status[60] "Buttons Config." swap;
+// button layout is now redefinable in the OSD "Define DB9 buttons" flow.
+wire [31:0] joystick_0 = joydb_1ena ? (OSD_STATUS? 32'b000000 : joydb_1_mapped[11:0]) : joystick_0_USB;
+wire [31:0] joystick_1 = joydb_2ena ? (OSD_STATUS? 32'b000000 : joydb_2_mapped[11:0]) : joydb_1ena ? joystick_0_USB : joystick_1_USB;
+// [MiSTer-DB9 END]
 
 // [MiSTer-DB9 BEGIN] - pass-through aliases (4-player Mahjong/Multitap path bypasses joydb)
 wire [15:0] joystick_2 = joystick_2_USB;
