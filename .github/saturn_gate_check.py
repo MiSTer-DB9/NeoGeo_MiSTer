@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # `saturn_unlocked` AND-gate regression guard (key-gate not decorative).
 #
-# the fork marker rules mandates every key-gated Saturn path be ANDed with the
+# the marker rules mandates every key-gated Saturn path be ANDed with the
 # `saturn_unlocked` signal the db9_key_gate drives, so Saturn stays inert
 # without a valid db9pro.key. step6.sh #4b only checks the joydb-instance
 # `.saturn_unlocked(...)` PORT is connected and DELIBERATELY accepts a

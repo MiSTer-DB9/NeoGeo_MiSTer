@@ -5,7 +5,7 @@
 # per <core>.sv (equal-count = pass). A count is blind to mis-nesting: a
 # `[MiSTer-DB9-Pro END]` that closes a `[MiSTer-DB9 BEGIN]` (or vice-versa),
 # or an interleave that closes the outer family before the inner one, leaves
-# both counts balanced yet violates the fork marker rules ("close inner before outer")
+# both counts balanced yet violates the marker rules ("close inner before outer")
 # and mis-classifies a gate-state region for the retag audit / the CI merge.
 # A porter-regex bug or an upstream merge introduces exactly this; it was
 # only ever caught by eyeball (SNES_MiSTer dc15e64 "remove orphan
@@ -70,7 +70,7 @@ def scan(path):
                     f"{'-Pro' if fam == 'Pro' else ''} END] closes a "
                     f"[MiSTer-DB9{'-Pro' if ofam == 'Pro' else ''} BEGIN] "
                     f"opened at line {oln} (wrong-family / outer-closed-"
-                    f"before-inner -- the fork marker rules 'close inner before "
+                    f"before-inner -- the marker rules 'close inner before "
                     f"outer')"), n
         stack.pop()
     if stack:
