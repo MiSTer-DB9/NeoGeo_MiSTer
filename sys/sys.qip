@@ -39,3 +39,4 @@ set_global_assignment -name VERILOG_FILE        [file join $::quartus(qip_path) 
 set_global_assignment -name SYSTEMVERILOG_FILE  [file join $::quartus(qip_path) joydb.sv ]
 set_global_assignment -name VERILOG_FILE        [file join $::quartus(qip_path) siphash24.v ]
 set_global_assignment -name SYSTEMVERILOG_FILE  [file join $::quartus(qip_path) db9_key_gate.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE  [file join $::quartus(qip_path) joydb_remap.sv ]
