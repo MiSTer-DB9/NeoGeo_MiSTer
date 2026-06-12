@@ -98,7 +98,7 @@ _db9_timing_fail() {
     if [[ "${LABEL}" == "STABLE" ]]; then
         ./.github/notify_error.sh "STABLE TIMING REGRESSION (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}"
     else
-        ./.github/notify_error.sh "UNSTABLE TIMING REGRESSION (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}" || true
+        NOTIFY_LEVEL=warn ./.github/notify_error.sh "UNSTABLE TIMING REGRESSION (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}" || true
     fi
 }
 
@@ -166,6 +166,68 @@ _db9_reseed_loop() {
     fi
 }
 
+# --- Fitter routing / fit-failure seed retry (dynamic-scope on build_cores) ---
+# A HARD fit/route failure produces NO RBF, so the compile aborts at the
+# `_notify_build_fail` call BEFORE the timing/ALM gate (_db9_seed_gate) — the
+# timing reseed loop above never sees it. Quartus itself says a different fitter
+# seed (or Aggressive Routability) may route the design, and in practice a
+# routing-congestion failure on one seed routes on another (PSX unstable: the
+# DualSDRAM sibling leg routed while the main leg congested out).
+#
+# POLICY SPLIT — this is NOT the timing reseed:
+#   * A real fit/route failure (no RBF) MUST be retried — the alternative is
+#     shipping nothing. So this path is DEFAULT-ON, governed by its own knob
+#     FIT_RETRY_MAX (default 3); set it to 0 to disable for a core.
+#   * A timing regression (RBF exists, just degraded) only REPORTS by default —
+#     _db9_seed_gate / _db9_reseed_loop, gated on the separate opt-in
+#     SEED_RETRY_MAX (default 0). The two knobs are independent on purpose.
+# So when the failed compile's log carries the fit/route signature, retry the
+# compile with successive seeds until one yields an RBF. Distinct from
+# _db9_reseed_loop, which recovers a TIMING regression on a build that already
+# routed; this recovers a build that failed to route AT ALL.
+
+# True iff the captured compile log shows a fitter routing/fit failure (NOT a
+# generic Quartus error a reseed can't fix — syntax, missing file, license).
+#   11802  = Can't fit design in device
+#   170143 = Final fitting attempt was unsuccessful
+#   188026 = Fitter failed to route (explicitly suggests changing the seed)
+#   16618  = Fitter routing phase terminated due to routing congestion
+_db9_fit_signature() {
+    grep -qE 'Error \(11802\):|Error \(170143\):|Critical Warning \(188026\):|Warning \(16618\):' "$1"
+}
+
+# Reseed-and-recompile until a seed routes. Returns 0 once an RBF appears (the
+# qsf is restored, output left in place for the metrics parse), 1 if every seed
+# still failed to route. Seeds are reproducible (2..1+FIT_MAX), matching
+# _db9_reseed_loop; like it, the winning seed is NOT persisted to the committed
+# qsf (the CI workspace is ephemeral — every rebuild re-runs the search).
+_db9_fit_retry_loop() {
+    [[ "${OUTDIR}" == "." || -z "${OUTDIR}" || ! -f "${QSF}" ]] && {
+        echo "::warning::Fit/route failure on ${REV} but reseed unavailable (qsf=${QSF}, outdir=${OUTDIR})."
+        return 1
+    }
+    local seed
+    cp "${QSF}" "${QSF}.db9orig"
+    for (( seed = 2; seed <= 1 + FIT_MAX; seed++ )); do
+        echo "Fit/route failure on ${REV}: retrying with SEED ${seed} (attempt $(( seed - 1 ))/${FIT_MAX})..."
+        # Keep exactly one SEED line: drop any from the original qsf, append ours.
+        grep -ivE '^[[:space:]]*set_global_assignment[[:space:]]+-name[[:space:]]+SEED[[:space:]]' \
+            "${QSF}.db9orig" > "${QSF}" || true
+        echo "set_global_assignment -name SEED ${seed}" >> "${QSF}"
+        rm -rf "${QDIR}/db" "${QDIR}/incremental_db" "${OUTDIR}"
+        "${QRT_RUN[@]}" bash -c "${QRT_CMD}" || true
+        if [[ -f "${COMPILATION_OUTPUT[i]}" ]]; then
+            echo "SEED ${seed} routed ${REV} successfully."
+            mv -f "${QSF}.db9orig" "${QSF}"
+            return 0
+        fi
+        echo "::warning::SEED ${seed} still failed to route ${REV}."
+    done
+    mv -f "${QSF}.db9orig" "${QSF}"
+    mkdir -p "${OUTDIR}"   # last failed seed rm'd it; recreate so callers don't trip
+    return 1
+}
+
 # Compare the fresh build against the fetched baseline and dispatch.
 #
 # Seed search is OPT-IN per core via the SEED_RETRY_MAX repo variable
@@ -182,8 +244,8 @@ _db9_seed_gate() {
     # never reseed.
     if (( SEED_MAX <= 0 )); then
         case "${rc}" in
-            3)  ./.github/notify_error.sh "${LABEL} TIMING REGRESSION — report only, build NOT failed, seed search off (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}" || true ;;
-            4)  ./.github/notify_error.sh "${LABEL} ALM REGRESSION — report only, build NOT failed, seed search off (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}" || true ;;
+            3)  NOTIFY_LEVEL=warn ./.github/notify_error.sh "${LABEL} TIMING REGRESSION — report only, build NOT failed, seed search off (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}" || true ;;
+            4)  NOTIFY_LEVEL=warn ./.github/notify_error.sh "${LABEL} ALM REGRESSION — report only, build NOT failed, seed search off (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}" || true ;;
             *)  : ;;  # 0 = clean; anything else = couldn't compare, stay silent
         esac
         return 0
@@ -201,7 +263,7 @@ _db9_seed_gate() {
             fi
             ;;
         4)  # ALM-only regression — warn, never retry (reseed won't move synth ALMs)
-            ./.github/notify_error.sh "${LABEL} ALM REGRESSION (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}" || true
+            NOTIFY_LEVEL=warn ./.github/notify_error.sh "${LABEL} ALM REGRESSION (${CORE_NAME[i]} @ ${SHA7})" "${NOTIFY_ARGS[@]}" || true
             ;;
         *)  : ;;  # 0 = clean; anything else = couldn't compare, don't block
     esac
@@ -294,18 +356,8 @@ build_cores() {
         chown -R \${HOST_UID}:\${HOST_GID} /project 2>/dev/null || true
         exit \$rc"
 
-        # attempt 0: unmodified qsf — byte-identical to the pre-gate build
-        "${QRT_RUN[@]}" bash -c "${QRT_CMD}" || _notify_build_fail
-
-        if [[ ! -f "${COMPILATION_OUTPUT[i]}" ]]; then
-            echo "::error::Build succeeded but ${COMPILATION_OUTPUT[i]} missing"
-            exit 1
-        fi
-
-        # Timing/ALM regression gate + SEED retry. Parse this build's metrics,
-        # fetch the last good build's baseline; on a timing regression reseed the
-        # fitter (full recompile) to recover. Happy path adds only one gh
-        # download + a cheap parse — zero extra compiles unless a regression hits.
+        # Derive the build-tree paths up front — BOTH the fit-failure seed retry
+        # (at the compile below) and the timing/ALM gate (after) need them.
         # REV   = Quartus revision = RBF / .qsf / report basename.
         # QDIR  = dir the project tree lives in ("." for root cores, e.g.
         #         "quartus" for subdir-qpf cores like Arcade-Cave) — the .qsf and
@@ -324,10 +376,46 @@ build_cores() {
         MKEY="${CORE_NAME[i]}"
         METRICS_JSON="/tmp/${MKEY}_db9_metrics.json"
         BASE_JSON="/tmp/${MKEY}_db9_baseline.json"
-        # Seed search is OPT-IN per core: SEED_RETRY_MAX defaults to 0 (OFF).
-        # OFF => the gate is report-only (see _db9_seed_gate). Set the per-fork
-        # repo variable SEED_RETRY_MAX to a positive N to enable reseed-recover.
+        # Two INDEPENDENT knobs (see _db9_fit_retry_loop's policy note):
+        #  SEED_MAX = timing-regression reseed — OPT-IN, default 0 (report-only).
+        #  FIT_MAX  = hard fit/route-failure reseed — DEFAULT-ON, default 3 (a
+        #             real fit failure ships no RBF, so it MUST be retried; set
+        #             FIT_RETRY_MAX=0 to disable for a specific core).
         local SEED_MAX="${SEED_RETRY_MAX:-0}" TMARGIN="${TIMING_MARGIN_NS:-0.5}" TRISK="${TIMING_RISK_FLOOR_NS:-1.0}"
+        local FIT_MAX="${FIT_RETRY_MAX:-3}"
+
+        # attempt 0: unmodified qsf — byte-identical to the pre-gate build.
+        # Capture the compile output (still streamed live via tee) so a hard
+        # fit/route failure — which produces NO RBF and so never reaches the
+        # timing gate — can be told apart from other Quartus errors and recovered
+        # by a fitter-seed search. PIPESTATUS[0] read before any other command so
+        # the tee pipeline's docker rc is intact; set +e/-e brackets the pipe so
+        # the caller's `set -e` doesn't abort before we inspect the rc.
+        local _cclog _crc=0
+        _cclog="$(mktemp)"
+        set +e
+        "${QRT_RUN[@]}" bash -c "${QRT_CMD}" 2>&1 | tee "${_cclog}"
+        _crc="${PIPESTATUS[0]}"
+        set -e
+        if (( _crc != 0 )); then
+            if (( FIT_MAX > 0 )) && _db9_fit_signature "${_cclog}"; then
+                echo "::warning::${LABEL} fit/route congestion on ${CORE_NAME[i]} @ ${SHA7} — seed search (FIT_RETRY_MAX=${FIT_MAX})."
+                _db9_fit_retry_loop || _notify_build_fail
+            else
+                _notify_build_fail
+            fi
+        fi
+        rm -f "${_cclog}"
+
+        if [[ ! -f "${COMPILATION_OUTPUT[i]}" ]]; then
+            echo "::error::Build succeeded but ${COMPILATION_OUTPUT[i]} missing"
+            exit 1
+        fi
+
+        # Timing/ALM regression gate + SEED retry. Parse this build's metrics,
+        # fetch the last good build's baseline; on a timing regression reseed the
+        # fitter (full recompile) to recover. Happy path adds only one gh
+        # download + a cheap parse — zero extra compiles unless a regression hits.
 
         python3 ./.github/quartus_metrics.py parse "${OUTDIR}" "${REV}" > "${METRICS_JSON}" || true
 
