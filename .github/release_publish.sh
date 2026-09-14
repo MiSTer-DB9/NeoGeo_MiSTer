@@ -40,9 +40,23 @@ CURRENT_SOURCE_HASH="${SOURCE_HASH:?SOURCE_HASH env not set — should be a pref
 shopt -s nullglob
 UPLOAD_FILES=(dist/*)
 shopt -u nullglob
-if (( ${#UPLOAD_FILES[@]} == 0 )); then
-    echo "No RBFs in dist/ — every build leg failed (each already emailed via notify_error.sh). No release created."
-    exit 0
+
+# Atomic publish: every expected core must have produced its RBF. A missing one
+# means a build leg was cancelled/failed or its artifact was lost in transit.
+# Fail here so no partial multi-core release ships (Distribution keeps the prior
+# complete set for every variant). The asset name is
+# "<core>_<DATE_STAMP>_<sha7>_DB9[.<ext>]"; anchoring on the "_<DATE_STAMP>_"
+# suffix keeps a core name that is a prefix of another (X68000 vs X68000USERIO2)
+# from matching its sibling, and matching the make_build "_DB9" suffix (not a
+# ".rbf" extension) covers Main_MiSTer, whose binary asset is extensionless.
+MISSING=()
+for c in "${CORE_NAME[@]}"; do
+    match=(dist/"${c}_${DATE_STAMP}_${BUILD_SHA7}"*_DB9*)
+    [[ -e "${match[0]}" ]] || MISSING+=("${c}")
+done
+if (( ${#MISSING[@]} > 0 )); then
+    echo "Incomplete build set: missing RBF for ${MISSING[*]}. No release created (each failed leg already emailed via notify_error.sh)." >&2
+    exit 1
 fi
 echo "Publishing $(printf '%s ' "${UPLOAD_FILES[@]##*/}")"
 echo "Source hash: ${CURRENT_SOURCE_HASH}"
