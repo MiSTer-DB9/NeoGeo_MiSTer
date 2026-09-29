@@ -616,7 +616,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.ps2_mouse(ps2_mouse),
 	.buttons(buttons),
 	// [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: joy_raw
-	.joy_raw(OSD_STATUS ? joy_raw_payload : 16'b0),
+	.joy_raw(joy_raw_payload),
 	// programmable remap matrix selector load (UIO_DB9_MAP 0xFD)
 	.db9_remap_cmd(db9_remap_cmd),
 	.db9_remap_byte_cnt(db9_remap_byte_cnt),
