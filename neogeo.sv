@@ -587,8 +587,8 @@ wire [21:0] gamma_bus;
 // order per the user's per-core/per-devtype map (UIO 0xFD). The CONF_STR-derived
 // default (gamepad_defaults) replaces the old status[60] "Buttons Config." swap;
 // button layout is now redefinable in the OSD "Define DB9 buttons" flow.
-wire [31:0] joystick_0 = joydb_1ena ? (OSD_STATUS? 32'b000000 : joydb_1_mapped[11:0]) : joystick_0_USB;
-wire [31:0] joystick_1 = joydb_2ena ? (OSD_STATUS? 32'b000000 : joydb_2_mapped[11:0]) : joydb_1ena ? joystick_0_USB : joystick_1_USB;
+wire [31:0] joystick_0 = joydb_1ena ? (OSD_STATUS? 32'b000000 : joydb_1_mapped[12:0]) : joystick_0_USB;
+wire [31:0] joystick_1 = joydb_2ena ? (OSD_STATUS? 32'b000000 : joydb_2_mapped[12:0]) : joydb_1ena ? joystick_0_USB : joystick_1_USB;
 // [MiSTer-DB9 END]
 
 // [MiSTer-DB9 BEGIN] - pass-through aliases (4-player Mahjong/Multitap path bypasses joydb)
